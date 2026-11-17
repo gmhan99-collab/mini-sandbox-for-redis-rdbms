@@ -157,6 +157,23 @@ export function extract_rdbms_scope(stats) {
     return described;
 }
 
+const RDBMS_COUNT_KEYS = ["rows", "scanned", "index_lookups", "inserted_id", "deleted_rows"];
+
+// RDBMS 응답 stats의 개수 값(시간 지표 아님)을 원시 기록용으로 고른다. 보고한 키만 남기고 없는 값(예: 이전 빌드의 deleted_rows)은 만들지 않는다.
+// rows는 SELECT 반환 행 수, deleted_rows는 DELETE 삭제 건수로 서로 다른 값이다.
+export function extract_rdbms_counts(stats) {
+    if (!stats || typeof stats !== "object") {
+        return null;
+    }
+    const counts = {};
+    for (const key of RDBMS_COUNT_KEYS) {
+        if (Number.isSafeInteger(stats[key])) {
+            counts[key] = stats[key];
+        }
+    }
+    return Object.keys(counts).length > 0 ? counts : null;
+}
+
 // RDBMS 응답 stats에서 서버가 보낸 시간 지표(…_ms)만 고른다. 유효하지 않은 값은 invalid로 따로 기록한다.
 export function extract_rdbms_stats_metrics(stats) {
     const metrics = {};

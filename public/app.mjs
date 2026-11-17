@@ -10,6 +10,7 @@ import { BUCKET_STRUCTURE_LABELS, read_bucket_health } from "./lib/bucket.mjs";
 import { render_bucket_health, render_bucket_job } from "./lib/bucket-render.mjs";
 import { create_tab_navigation, select_tab, set_tab_status } from "./lib/tab-navigation.mjs";
 import { describe_tab_activity, summarize_connection } from "./lib/page-status.mjs";
+import { describe_delete_failure, describe_rdbms_delete_health, read_rdbms_delete_health, summarize_sql_success } from "./lib/sql-delete.mjs";
 
 const REQUEST_LOG_LIMIT = 30;
 const PHASE_LABELS = { insert: "삽입", read: "조회" };
@@ -413,6 +414,7 @@ async function check_health_tracked(kind, token) {
         const health = result.json;
         record_result("ok", typeof health.mode === "string" ? health.mode : "보고 없음");
         lines.push(element("p", {}, `서버가 보고한 현재 모드: ${health.mode} · 저장: ${health.storage} · ${health.flush} · ${health.durability} · 인덱스 저장: ${health.index_save} · 단일 스레드: ${health.single_threaded ? "예" : "아니요"}`));
+        lines.push(element("p", {}, describe_rdbms_delete_health(read_rdbms_delete_health(health))));
     } else {
         // 수동 연결도 서버가 실제로 보고한 구조만 보여 준다. 페이지의 선택 값으로 구조를 표시하지 않는다.
         const bucket_health = read_bucket_health(result.json);
@@ -425,11 +427,28 @@ async function check_health_tracked(kind, token) {
     show(container, element("div", { class: "ok-box" }, lines));
 }
 
+// 형식 표시(#mini-rdbms-csv-v2)가 있을 때만 v2 행 수를 보여 준다. 표시가 없으면 이전 빌드 형식으로 보고 줄 수만 보여 준다.
+function describe_playground_csv(csv) {
+    if (csv.format === "v2") {
+        const problem = csv.invalid_rows ? ` · 손상 ${csv.invalid_rows}행, 첫 손상: ${csv.first_problem}. 엔진은 이 파일을 열지 않습니다` : "";
+        return `records.csv v2 · 물리 ${csv.physical_rows}행(정상 ${csv.live_rows} · 삭제 표시 ${csv.deleted_rows}${problem})`;
+    }
+    if (csv.format === "not-v2") {
+        const legacy = csv.legacy;
+        const rows = legacy.invalid_rows ? `${legacy.rows}행 해석, 손상 ${legacy.invalid_rows}행(${legacy.first_problem})` : `${legacy.rows}행`;
+        return `records.csv 이전 형식 추정(v2 표시 없음) ${rows}. 새 DELETE 빌드는 이 데이터를 열지 않으며 자동 변환하지 않습니다 — README의 이관 절차 참고`;
+    }
+    if (csv.format === "unknown") {
+        return `records.csv ${csv.lines}줄 — 알 수 없는 형식 표시(정확한 #mini-rdbms-csv-v2 아님). 행 수를 해석하지 않습니다`;
+    }
+    return `records.csv ${csv.lines}줄`;
+}
+
 async function refresh_playground_info() {
     try {
         const config = await call_management("GET", "/api/config");
         const playground = config.playground;
-        $("#rdbms-playground-info").textContent = `놀이터 데이터: mini-sandbox/${playground.data_dir.replaceAll("\\", "/")} — ${!playground.exists ? "아직 없음" : !playground.owned ? "샌드박스가 만들지 않은 기존 디렉터리라서 사용하거나 삭제하지 않습니다" : playground.records_csv.exists ? `records.csv ${playground.records_csv.lines}줄` : "비어 있음"}`;
+        $("#rdbms-playground-info").textContent = `놀이터 데이터: mini-sandbox/${playground.data_dir.replaceAll("\\", "/")} — ${!playground.exists ? "아직 없음" : !playground.owned ? "샌드박스가 만들지 않은 기존 디렉터리라서 사용하거나 삭제하지 않습니다" : playground.records_csv.exists ? describe_playground_csv(playground.records_csv) : "비어 있음"}`;
     } catch (error) {
         $("#rdbms-playground-info").textContent = `놀이터 상태를 읽지 못했습니다: ${error.message}`;
     }
@@ -597,17 +616,25 @@ async function run_sql_tracked(token) {
     }
     log_request("rdbms", "POST", "/query", result, token);
     if (!result.transport_ok || result.status !== 200 || !result.json || result.json.ok !== true) {
-        show(container, element("div", { class: "error-box" }, [describe_failure(result), element("pre", {}, result.body_text), metrics_line(result)]));
+        const delete_notes = describe_delete_failure(sql, result) || [];
+        show(container, element("div", { class: "error-box" }, [describe_failure(result), ...delete_notes.map((note) => element("p", {}, note)), element("pre", {}, result.body_text), metrics_line(result)]));
         return;
     }
-    const stats = result.json.stats;
-    const children = [element("strong", {}, "실행 성공")];
-    children.push(element("p", {}, `경로 ${stats.path} · 반환 ${stats.rows}행 · 읽은 행 ${stats.scanned} · 인덱스 조회 ${stats.index_lookups}${stats.path === "append" ? ` · 발급 ID ${stats.inserted_id}` : ""}`));
-    if (result.json.columns.length > 0) {
+    show(container, render_sql_success(sql, result));
+}
+
+// 성공 응답 표시. DELETE 삭제 건수는 stats.deleted_rows만 쓰고, 보고가 없으면 성공 대신 경고로 표시한다.
+function render_sql_success(sql, result) {
+    const summary = summarize_sql_success(sql, result.json);
+    const children = [element("strong", {}, summary.title), element("p", {}, summary.text)];
+    if (summary.problem) {
+        children.push(element("p", {}, summary.problem));
+    }
+    if (Array.isArray(result.json.columns) && result.json.columns.length > 0) {
         children.push(render_rows_table(result.json));
     }
     children.push(metrics_line(result));
-    show(container, element("div", { class: "ok-box" }, children));
+    return element("div", { class: summary.problem ? "warn-box" : "ok-box" }, children);
 }
 
 function count_cells(summary) {

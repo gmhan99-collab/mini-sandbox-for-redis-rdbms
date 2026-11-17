@@ -18,6 +18,7 @@ import {
     summarize_phase,
     verify_full_table
 } from "./experiment-core.mjs";
+import { expected_format_from_health, verify_records_csv } from "./records-csv.mjs";
 
 export const SYSTEM_LABELS = {
     "redis": "mini-redis (메모리)",
@@ -107,6 +108,7 @@ function measured_record(result, verdict) {
         server_metrics: result.server_metrics || {},
         server_timing_raw: result.server_timing_raw || null,
         server_scope: result.server_scope || null,
+        server_counts: result.server_counts || null,
         metric_problems: result.metric_problems || []
     };
 }
@@ -199,11 +201,9 @@ async function cleanup_run(context, run) {
         for (const [label, csv] of Object.entries(finished.csv_files)) {
             const state = context.states[label];
             const expected = state ? state.inserted.size : 0;
-            run.verification.push({
-                system: label,
-                ok: csv.lines === expected,
-                detail: `중지 후 records.csv ${csv.lines}줄 / ${csv.bytes}바이트, 성공한 INSERT ${expected}건`
-            });
+            // 준비 단계 /health가 보고한 저장 형식으로 검증한다. 파일 모양만 보고 이전 형식으로 강등하지 않는다.
+            const verdict = verify_records_csv(csv, expected, expected_format_from_health(run.conditions[label]));
+            run.verification.push({ system: label, ok: verdict.ok, unverified: verdict.unverified, expected_format: verdict.expected_format, detail: verdict.detail });
         }
     }
 }

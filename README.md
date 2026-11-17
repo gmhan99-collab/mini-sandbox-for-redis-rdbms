@@ -111,8 +111,8 @@ mingw32-make BUILD_DIR=build/bucket-compare server bucket-benchmark   # mini-red
 
 설정은 [config/sandbox.config.json](config/sandbox.config.json)에 있습니다. 실행 파일 경로, 기본 주소, 실험 상한(건수 200, 반복 5회), 프록시 본문 상한, 네이티브 벤치마크 상한과 제한 시간을 바꿀 수 있습니다.
 
-- `redis_executable`, `rdbms_executable`: 문자열 하나 또는 후보 배열. 배열이면 **샌드박스 시작 시점에** 먼저 존재하는 경로를 씁니다. 기본값은 `build/todo-remaining` → `build/todo-measurement` → `build/sandbox-backend` 순서입니다. 새로 빌드했다면 샌드박스를 다시 시작해야 선택이 바뀝니다. 선택된 경로는 `GET /api/config`의 `executables`에 나옵니다.
-- `redis_benchmark_executable`, `rdbms_benchmark_executable`: 같은 방식의 후보 배열입니다(`build/todo-remaining` → `build/todo-measurement`). 샌드박스 시작 때 하나를 고르고, 실행할 때마다 존재를 확인합니다. 후보 목록은 `GET /api/config`의 `executable_candidates`에 나옵니다.
+- `redis_executable`, `rdbms_executable`: 문자열 하나 또는 후보 배열. 배열이면 **샌드박스 시작 시점에** 먼저 존재하는 경로를 씁니다. 기본값은 Redis가 `build/bucket-compare` → `build/todo-remaining` → …, RDBMS가 `build/delete-api`(2026-11-17 DELETE 빌드) → `build/todo-remaining` → `build/todo-measurement` → `build/sandbox-backend` 순서입니다. `build/delete-api`가 없으면 이전 빌드로 대체하며, 이때 DELETE는 오류로 끝납니다(5-5절). 새로 빌드했다면 샌드박스를 다시 시작해야 선택이 바뀝니다. 선택된 경로는 `GET /api/config`의 `executables`에 나옵니다.
+- `redis_benchmark_executable`, `rdbms_benchmark_executable`: 같은 방식의 후보 배열입니다(`build/todo-remaining` → `build/todo-measurement`, RDBMS는 그 앞에 `build/delete-api`). 샌드박스 시작 때 하나를 고르고, 실행할 때마다 존재를 확인합니다. 후보 목록은 `GET /api/config`의 `executable_candidates`에 나옵니다.
 - `native_max_count`(10000), `native_max_queries`(1000000), `native_max_repeats`(5), `native_timeout_ms`(프로세스당 120초), `native_max_stdout_bytes`(4 MiB).
 - `redis_bucket_benchmark_executable`: 버킷 비교 헬퍼 후보(`build/bucket-compare/mini-redis-bucket-benchmark.exe`). `bucket_http_max_count`(200), `bucket_http_max_queries`(2000): HTTP 계층을 고른 버킷 비교의 건수·조회 수 상한. `bucket_max_rounds`(20), `bucket_max_insert_samples`(100,000: 건수 × 라운드 × 구조 수, 삽입 지연 원시 표본을 결과에 모두 남기기 때문), `bucket_prepare_max_stdout_bytes`(8 MiB, `--prepare-only` 출력 상한). 헬퍼 프로세스 시간 제한은 `native_timeout_ms`를 같이 씁니다.
 - `native_scan_work_budget`(20,000,000): scan을 고른 요청은 `count × queries × rounds`가 이 값 이하여야 합니다. 넘으면 프로세스를 만들기 전에 400 `native_scan_budget`으로 거부합니다(5-1절 참고).
@@ -346,6 +346,43 @@ RDBMS 응답 형식:
 
 **알고리즘과 메모리 할당 실패 처리.** RBTree의 정렬 기준(캐시된 해시값, 그다음 키 바이트와 길이), 리해시 때 노드 재배치·트리 재구축, 할당 실패 시 상태 보존 방식은 백엔드 소유 문서(`coordination/bucket-backend-report.md`, `hjm-mini-redis` 문서)를 따릅니다. 샌드박스 문서는 이를 다시 서술하지 않습니다.
 
+## 5-5. SQL DELETE와 CSV v2 (2026-11-17)
+
+백엔드 계약: [coordination/delete-backend-contract.md](coordination/delete-backend-contract.md). 아래 내용은 그 계약을 샌드박스에서 쓰는 방식이며, 엔진 동작의 정의는 계약과 RDBMS 문서를 따릅니다.
+
+**빌드**: RDBMS 프로젝트에서 격리 빌드 `build/delete-api`(`mini-rdbms-server.exe`, `mini-rdbms.exe`, `mini-rdbms-benchmark.exe`, `migrate-csv-v2.exe`)를 만듭니다. 샌드박스는 시작할 때 이 경로를 먼저 고르므로, 새로 빌드했다면 샌드박스를 다시 시작하세요. 사용자가 직접 실행 중인 이전 서버·이전 빌드 파일은 건드리지 않습니다.
+
+**SQL과 결과**
+- 형식: `DELETE FROM records WHERE 컬럼 = 값;`(SELECT와 같은 단일 동등 조건). `WHERE`는 필수이며, 없는 DELETE는 엔진이 422로 거부합니다. 화면이 따로 막지 않고 엔진의 오류를 그대로 보여 줍니다.
+- 조건에 맞는 정상 행을 모두 삭제 표시합니다. 없는 행·이미 삭제한 행은 `deleted_rows: 0`인 **성공**입니다.
+- 성공 응답의 `stats.deleted_rows`가 삭제 건수입니다. `stats.rows`는 SELECT 반환 행 수로 DELETE에서는 0이며, 삭제 건수로 쓰지 않습니다. DELETE는 행을 반환하지 않습니다(`columns`·`rows` 빈 배열). 화면은 `DELETE 성공 — 삭제 N행`으로 표시하고, 200 응답에 `deleted_rows`가 없으면 성공 대신 경고로 표시하며 건수를 만들지 않습니다.
+- 실패는 422(SQL·테이블·컬럼·자료형) 또는 500(저장소·인덱스 오류, 엔진 중단)이며 성공 stats가 없습니다. 화면은 실패를 “삭제 0건”으로 표시하지 않습니다. 이전 빌드는 DELETE를 422 `sql_error`로 거부합니다.
+- 원시 기록: 프록시 응답 결과에 `server_counts`(`rows`, `scanned`, `index_lookups`, `inserted_id`, 보고한 경우 `deleted_rows`)를 따로 남기고, HTTP 실험의 요청 기록에도 같은 값을 저장합니다. 개수는 시간 지표(`rdbms.*_ms`)로 집계하지 않습니다.
+- “DELETE 예시(입력만)” 버튼은 `DELETE FROM records WHERE id = 1;`을 입력란에 채우기만 합니다. 실행 버튼을 눌러야 보냅니다. 샌드박스 코드(실험·정리·지우기)는 사용자 데이터에 DELETE를 자동으로 보내지 않습니다.
+
+**`/health`**: DELETE 빌드는 `capabilities.delete=true`, `data_format="mini-rdbms-csv-v2"`, `tables`(테이블별 `rows` 정상 행, `physical_rows` 물리 행, `deleted_rows` 삭제 표시 행, `max_issued_id` 최대 발급 ID)와 `flush: "fflush-per-insert-or-delete"`를 보고합니다. 상태 확인 결과에 “DELETE 지원: 예 · 데이터 형식 · 카운터”를 그대로 보여 주고, 보고가 없으면 “이전 빌드”로만 표시합니다.
+
+**데이터 형식(v2)과 오프셋**
+- 파일은 정확히 `#mini-rdbms-csv-v2\n`(19바이트)로 시작합니다. 각 물리 행은 `0,`(정상) 또는 `1,`(삭제) 상태 바이트 뒤에 이전 CSV 행 내용이 옵니다. 예: `0,1,"Kim"` → 삭제 후 `1,1,"Kim"`.
+- 삭제는 상태 바이트 하나만 덮어쓰고 `fflush`를 확인합니다. 행 길이와 다른 행의 오프셋은 그대로이며, 인덱스 오프셋은 상태 바이트가 있는 행 시작을 가리킵니다. `.idx`는 버전 2이고 CSV가 기준입니다(시작 시 전체 대조, 불일치하면 재구축).
+- 정상 행 수 = 물리 행 수 − 삭제 표시 행 수. 논리 삭제라서 파일 크기는 줄지 않고, scan 경로는 삭제된 행까지 물리 행을 계속 읽습니다(`stats.scanned`).
+- 최대 발급 ID는 삭제된 행까지 포함합니다. 최고 ID를 지우거나 정상 행이 하나도 남지 않아도 다음 INSERT는 그다음 ID를 받습니다(재시작 후 포함).
+- **샌드박스의 파일 검사(읽기 전용)**: 형식은 첫 19바이트가 정확히 `#mini-rdbms-csv-v2\n`인지로만 정합니다. `#`로 시작하지만 정확한 표시가 아니면(다른 버전, `\r\n`, 줄바꿈 없음) “알 수 없는 형식”이고 행 수를 해석하지 않습니다. 행은 엔진(`read_row`·`csv_decode`·시작 시 복구)과 같은 규칙으로 검사합니다: 줄바꿈으로 끝남, NUL·최대 행 길이 금지, v2 상태 `0,`/`1,`, 스키마 순서의 필드 수(`id` 정수 + `value` 문자열), 따옴표 규칙(`""`만 리터럴 따옴표, 닫은 뒤에는 쉼표나 행 끝, 따옴표 없는 필드 안 따옴표 금지, 텍스트 4096바이트 이하), `id`는 int64 범위의 양수이고 앞 행보다 커야 함(중복·감소 금지, 삭제 행 포함). 하나라도 어긋난 행은 “손상”이며 정상·삭제 행으로 세지 않습니다. 엔진도 이런 파일을 열지 않습니다. 검사는 파일을 쓰거나 고치지 않습니다.
+- 놀이터 정보는 v2이면 “물리 N행(정상 · 삭제 표시 · 손상)”, 표시 없는 파일은 “이전 형식 추정 N행(손상 수)”, 다른 표시는 “알 수 없는 형식”으로 보여 줍니다.
+
+**이전 형식 데이터와 이관**
+- 새 빌드는 표시 없는 비어 있지 않은 CSV를 열지 않고 종료합니다(`CSV legacy/unknown format; migrate explicitly ...`). 이 경우 관리형 시작은 409 `rdbms_legacy_csv`로 실패하며, 이관 방법만 안내합니다. 샌드박스는 기존 데이터를 **자동으로 변환·삭제·덮어쓰지 않습니다.**
+- 이관은 사용자가 직접 실행합니다: `hjm-mini-rdbms/build/delete-api/migrate-csv-v2.exe --schema <스키마> --source <기존 디렉터리> --dest <존재하지 않는 새 디렉터리>`. 원본 CSV·인덱스는 바뀌지 않고, 이전 인덱스는 복사하지 않습니다(새 형식에서 재구축). 대상에는 실패 시 `MIGRATION_INCOMPLETE`, 성공 시 `MIGRATION_COMPLETE`가 남습니다. 샌드박스 놀이터를 이관한 디렉터리로 바꾸는 기능은 없습니다. 이전 빌드로 계속 쓰거나, 놀이터라면 “놀이터 데이터 초기화”(데이터 삭제)로 새로 시작할 수 있습니다.
+- 새 실험 디렉터리는 비어 있는 상태에서 시작하므로 v2로 만들어집니다.
+
+**재시작**: 관리형 중지는 강제 종료라 인덱스 파일이 저장되지 않습니다. 다음 시작 때 CSV(삭제 표시 포함)에서 정상 행만 인덱스에 다시 등록하므로 삭제는 유지됩니다.
+
+**오류·보장 범위**: 상태 쓰기·`fflush`가 먼저 끝난 뒤 인덱스에서 ID를 제거하고 카운터를 바꿉니다. 저장소·인덱스 오류는 엔진을 중단 상태로 만들고(이후 요청 500, 재시작 필요) 불일치 가능성이 있는 인덱스를 저장하지 않습니다. 여러 행 삭제 도중 실패하면 일부 행은 이미 삭제 표시되었을 수 있으며 문장 단위 롤백은 없습니다. `fflush`는 OS 버퍼까지만 보장하며 fsync·WAL·트랜잭션·전원 장애 내구성은 없습니다.
+
+**압축(compaction)은 구현하지 않았습니다(후속 범위)**: 삭제 행이 쌓여도 CSV는 줄지 않습니다. 후속 압축은 정상 행만 임시 CSV에 쓰고 새 오프셋으로 인덱스를 만든 뒤 검증·교체·실패 복구 정책을 따로 설계해야 하며, CSV와 인덱스 교체가 원자적이라고 가정할 수 없습니다. 압축 후에도 ID를 재사용하지 않으려면 최대 발급 ID를 별도 영속 메타데이터로 보존해야 합니다.
+
+**HTTP 엔진 범위**: DELETE 추가와 무관하게 Redis와 HTTP 엔진 범위를 맞추는 문제(TODO의 사용자 결정 항목)는 바꾸지 않았습니다. `engine_scope`가 DELETE 작업(상태 쓰기·fflush)을 포함한다고 보고할 뿐입니다.
+
 ## 6. 모드 전환 (scan / bptree)
 
 RDBMS 모드는 서버를 시작할 때 `--mode scan|bptree` 인자로만 정해집니다. 실행 중에 모드를 바꾸는 API는 없으며, 화면에도 “전환한 척”하는 토글을 두지 않았습니다.
@@ -357,14 +394,14 @@ RDBMS 모드는 서버를 시작할 때 `--mode scan|bptree` 인자로만 정해
 
 ## 7. 실험 절차 (준비 · 측정 · 검증 · 정리)
 
-엔진에는 DELETE와 CREATE TABLE이 없고, ID는 자동으로 증가합니다. 그래서 반복 가능한 비교를 위해 **실험마다 새 RDBMS 프로세스와 새 데이터 디렉터리**를 사용합니다.
+엔진에는 CREATE TABLE이 없고(DELETE는 `build/delete-api`부터 지원하지만 실험은 쓰지 않습니다), ID는 자동으로 증가하며 삭제된 ID도 재사용하지 않습니다. 그래서 반복 가능한 비교를 위해 **실험마다 새 RDBMS 프로세스와 새 데이터 디렉터리**를 사용합니다.
 
 1. **준비** (측정에서 제외): 실험 디렉터리를 만들고, 선택한 시스템별로 새 인스턴스를 시작합니다. 이어서 `/health`와 모드를 확인하고, `records` 테이블이 비어 있는지 확인합니다. Redis는 실험 키(`sandbox:<실험ID>:<번호>`)를 모두 GET해서 404인지 먼저 확인합니다. 이미 있는 키가 하나라도 있으면 아무 값도 쓰지 않고 중단합니다.
 2. **측정**: 시스템마다 같은 N개의 값(`값-<번호> <실험ID> O'K`)을 순서대로 삽입하고, 같은 N개를 다시 조회합니다. 요청은 한 번에 하나씩 보냅니다. 반복할 때마다 시스템 순서를 바꿉니다.
    - Redis 삽입은 200 `{"ok":true}`일 때만 성공입니다. 조회는 200이고 받은 바이트가 저장한 값과 같을 때만 성공입니다.
    - RDBMS 삽입은 200, `path=append`, 그리고 기대한 ID(1, 2, …)가 모두 맞을 때만 성공입니다. 조회는 `SELECT id, value FROM records WHERE id = <발급 ID>`로 하며, 정확히 1행이고 값과 `stats.path`(모드)가 맞아야 성공입니다.
    - 통신·HTTP 오류는 **실패**, 응답은 왔지만 값·ID·경로가 다르면 **불일치**로 따로 셉니다. 삽입에 실패한 항목의 조회는 요청하지 않고 실패로 셉니다. 실패와 불일치는 처리량에 넣지 않습니다.
-3. **검증** (측정에서 제외): RDBMS 전체 조회 결과가 성공한 INSERT 목록과 순서·값까지 같은지 확인합니다. 인스턴스를 중지한 뒤에는 `records.csv` 줄 수가 성공한 INSERT 수와 같은지 확인합니다.
+3. **검증** (측정에서 제외): RDBMS 전체 조회 결과가 성공한 INSERT 목록과 순서·값까지 같은지 확인합니다. 인스턴스를 중지한 뒤에는 `records.csv`를 확인합니다. 기대 형식은 그 실행의 준비 단계 `/health`(결과의 `conditions`)로 정합니다. `data_format`이 `mini-rdbms-csv-v2`이면 파일이 있어야 하고 첫 줄이 정확히 `#mini-rdbms-csv-v2`여야 하며, 모든 행이 엔진 규칙대로 해석되고(아래 5-5절) 물리 행 = 정상 행 = 성공한 INSERT 수, 삭제 표시·손상 0이어야 통과합니다. `/health`에 `data_format`·`capabilities`가 모두 없는 mini-rdbms(DELETE 이전 빌드)로 확인된 실행만 이전 형식 행 검사(같은 행 규칙, 상태 바이트 없음)를 씁니다. 형식을 확인하지 못한 실행은 “미검증”(`unverified: true`, 통과 아님)으로 남깁니다. 파일이 없으면 빈 표와 구분해 실패입니다. v2 실행의 표시 유실·다른 버전 표시를 이전 형식으로 강등하지 않고, 첫 ID 값으로 형식을 추측하지 않습니다.
 4. **정리** (측정에서 제외): “현재 연결 주소”로 Redis를 실험했다면 이번 실험 키만 DELETE합니다. 실험 인스턴스를 중지하고, 선택한 경우 실험 디렉터리를 삭제합니다.
 
 결과는 두 표로 표시합니다. 구간 표는 시스템과 구간별 요청·성공·실패·불일치 수, 구간 시간, 성공 처리량(성공 ÷ 구간 시간)입니다. 분포 표는 지표별(브라우저 RTT, 프록시–서버 구간, RDBMS db_exec, Redis Server-Timing 등) 표본 수/성공 요청 수, 누락 수, 평균·중앙값·p90·p95·p99·최솟값·최댓값입니다(4절 참고). 중단하거나 오류가 난 실행에서는 부분 측정값을 통계 표로 표시하지 않습니다. 대신 각 구간을 시작할 때 `phases[]`에 먼저 넣고 요청 기록을 그 자리에 쌓으므로, 중단 전까지 끝난 요청의 원시 기록은 저장 결과에 남습니다. 끝난 구간은 `complete: true`와 `summary`를 갖고, 중단된 구간은 `complete: false`, `summary: null`, `partial_elapsed_ms`를 갖습니다. 검증과 정리도 수행합니다.
@@ -372,7 +409,7 @@ RDBMS 모드는 서버를 시작할 때 `--mode scan|bptree` 인자로만 정해
 ## 8. 저장 방식 차이와 제한
 
 - **mini-redis**: 프로세스 메모리의 해시 테이블에만 저장합니다. 종료하면 데이터가 사라집니다.
-- **mini-rdbms**: INSERT마다 CSV에 덧붙이고 `fflush`합니다(`/health`: `flush=fflush-per-insert`, `durability=no-fsync-no-wal`). fsync·WAL이 없으므로 OS 버퍼까지만 보장하며, 전원 장애 내구성은 없습니다. 인덱스 파일은 정상 종료(Ctrl+C) 때만 저장합니다(`index_save=on-clean-shutdown`).
+- **mini-rdbms**: INSERT마다 CSV에 덧붙이고 `fflush`합니다(DELETE 빌드는 삭제 상태 쓰기도 `fflush`, 5-5절)(`/health`: `flush=fflush-per-insert`, DELETE 빌드는 `fflush-per-insert-or-delete`, `durability=no-fsync-no-wal`). fsync·WAL이 없으므로 OS 버퍼까지만 보장하며, 전원 장애 내구성은 없습니다. 인덱스 파일은 정상 종료(Ctrl+C) 때만 저장합니다(`index_save=on-clean-shutdown`).
 - 따라서 삽입 속도 차이는 같은 조건의 DBMS 우열이 아닙니다. 하는 일 자체가 다릅니다.
 - **관리형 인스턴스 종료 방식**: 샌드박스는 자식 콘솔에 Ctrl+C를 보낼 수 없어 프로세스를 강제 종료합니다. fflush된 CSV 행은 남지만, 인덱스 파일은 저장되지 않습니다. 그래서 다음 시작 때 CSV에서 인덱스를 다시 구축합니다(실험 디렉터리는 대개 바로 삭제되므로 영향이 없습니다).
 - **단일 스레드**: 두 서버 모두 한 스레드의 이벤트 루프로 요청을 순서대로 처리합니다. 큰 scan 조회나 Redis 일괄 rehash가 진행되는 동안 다른 요청은 기다립니다. 실험 중 다른 탭이나 도구로 같은 서버를 호출하면 측정값이 달라집니다. 샌드박스도 실험 요청을 동시에 보내지 않습니다.
@@ -409,6 +446,9 @@ node --test tests/
 - `tests/bucket-review.test.mjs`: 독립 리뷰(`coordination/bucket-sandbox-review-codex.md`)의 P2 세 건 회귀. 실행 판정 규칙과 실패 출력 보존(64 KiB 상한) 단위 검사. 실제 `build/bucket-compare` 서버에 리뷰와 같은 방식(샌드박스 Node HTTP 경계)으로 오류를 넣어, 모든 GET 실패와 조회되지 않는 잘못된 저장 값(hit_percent 0)이 실패·미검증으로 저장되고 원시 기록이 남는지 확인합니다. 가짜 헬퍼의 nonzero 실패 JSON·해석 불가 원문·빈 stdout·exit 0의 `ok:false`, 백엔드의 실제 실패 fixture(`bucket-benchmark-failure-test.exe`)로 디스크 결과의 보존과 요약 제외를 확인합니다. 실제 헬퍼 normal·collision 정상 경로(최종 검증 통과, 검증 요청이 표본 밖, 인스턴스 미잔존)와 화면의 비교·실패 진단 표시도 검사합니다.
 - `tests/tab-clear.test.mjs`(백엔드 실행 파일 불필요, 2026-11-17 탭별 지우기): 범위 세대가 다른 탭·범위 없는 토큰을 무효로 만들지 않음, 전체 지우기 세대 규칙 유지, 진행 중·알 수 없는 범위 거부, 모든 `track()` 호출의 범위가 탭 진행 표시 규칙과 일치, 5개 패널의 버튼·접근 이름·설명·polite 상태. Node VM의 실제 `app.mjs`로 5개 탭과 요청 기록을 채운 뒤 탭마다 지워 다른 탭·기록 줄·입력·연결 상태·선택 탭·포커스 유지와 요청 0건, 연결 탭 지우기의 상태 확인·요약 유지, 전체 지우기 이전 동작, 지운 범위의 늦은 결과만 차단, 추적 동작·관리 동작·HTTP 실험·C/버킷 시작·미해결·중단 중 버튼·함수 거부와 회복 후 해제, 반복 클릭·탭 전환에도 핸들러·요청 불변을 확인합니다. 가짜 DOM은 `tests/fixtures/fake-dom.mjs`로 옮겨 `design-tabs.test.mjs`와 함께 씁니다.
 - `tests/design-tabs.test.mjs`(백엔드 실행 파일 불필요, 2026-11-17 디자인 개선): 5개 탭과 패널의 ARIA 연결·초기 hidden/inert, 기존 id 91개 보존과 중복 없음, 영역별 탭·공통 보조 영역 배치, Bootstrap 5.3.9 파일의 SRI·라이선스·로컬 로딩(JS·CDN 없음), hidden 우선 CSS. 가짜 DOM으로 탭 모듈의 클릭·←/→/Home/End·roving tabindex·hidden/inert·숨겨지는 패널의 포커스 이동·20회 왕복 후 패널 노드·입력값 동일·핸들러 수 불변·중복 연결 거부를 확인합니다. 탭 진행 표시·서버 요약 문구의 계산과, Node VM의 실제 `app.mjs`로 탭 전환 중 요청 0건, 숨긴 탭의 C 벤치마크 진행·미해결·완료 표시, 미해결 시 지우기 거부와 완료 후 숨긴 결과·내보내기 지우기, 상태 확인 한 번당 요청 하나와 주소 변경 후 미확인 표시를 확인합니다.
+- `tests/delete.test.mjs`(백엔드 실행 파일 불필요, 2026-11-17 DELETE): 문장 종류, `deleted_rows` 해석(누락·음수·소수·문자열은 만들지 않음), DELETE/SELECT/INSERT 요약 구분, 422·500 실패 설명, `/health` DELETE 지원·카운터 해석, `server_counts`와 시간 지표 분리. v2 표시·상태 바이트 계산(정상·삭제·잘못된 상태·잘린 행), 첫 ID 0/1·유사 표시·줄바꿈 없는 표시를 v2로 오인하지 않음, 중지 후 검증 판정. 이전 형식 거부 안내(원본 바이트·파일 목록 불변, 형식 원인이 아닐 때 일반 오류). Node VM의 실제 `app.mjs`로 DELETE 성공·0건·보고 누락 경고·실패 표시, SELECT 표시 유지, 예시 버튼이 입력만 채움. 계약 모의 서버를 실제 샌드박스 프록시로 호출해 여러 행·재삭제·ID·WHERE 누락·자료형 오류·빈 결과·카운터를 확인합니다(모의 서버이므로 엔진 검증이 아님).
+- `tests/delete-csv-format.test.mjs`(2026-11-17 리뷰 R1/R2 수정): 리뷰의 손상·혼합 행 4종(payload 없음, 정수 아닌 ID, 닫히지 않은 따옴표, v2 뒤 이전 형식 ID 0 행)과 ID 0·음수·int64 초과·중복·감소, 필드 초과, 잘못된 따옴표, 잘못된 상태, 잘린 행, NUL, 삭제 행 손상이 모두 손상으로 표시되고 검증 실패. 올바른 v2(삭제 표시·`""` 이스케이프·쉼표·CRLF·한글·빈 문자열·최대 int64)와 표시만 있는 빈 표. `/health` 기반 기대 형식(v2·이전 빌드·미확인), 표시 유실·v3·`\r\n` 표시·파일 없음 실패, 미확인은 미검증. `build/delete-api` 서버로 같은 파일을 열어 거부·카운터·읽은 값이 검사 결과와 같은지, 실제 `build/todo-remaining` 서버로 만든 이전 형식 실행만 이전 형식 검증을 통과하는지 확인합니다. 데이터는 `data/test-csvfmt-<임의값>`에만 만들고 지웁니다.
+- `tests/delete-real.test.mjs`(`build/delete-api` 서버가 선택될 때만): 실제 관리형 서버로 ID·값·여러 행·0건·재삭제·없는 ID, `deleted_rows`와 `rows` 구분, WHERE 누락·자료형·없는 테이블/컬럼 422와 무변경, 재시작 후 삭제 유지와 v2 파일 카운터·`/health` 카운터 일치, 최고 ID 삭제·전체 삭제 후 ID 비재사용, 이전 형식 CSV의 시작 거부(`rdbms_legacy_csv`)와 원본 해시 보존. 데이터는 `data/test-delete-<임의값>`에만 만들고 지웁니다.
 - `tests/integration.test.mjs`: 실제 `mini-redis.exe`와 `mini-rdbms-server.exe`를 관리형으로 띄웁니다. `build/todo-remaining`을 쓰면 다음을 추가로 확인합니다: 두 `/health`의 build_info 다섯 문자열, RDBMS `result_conversion_ms`(db_exec 이하)와 그 범위·시계, 실험의 결과 변환 성공 표본 5/5, 네이티브 matched_lookup의 라운드 수·적중 수·시스템 간 비교 일치, scan의 null. 실행 파일 후보 선택에 따라 `build/todo-measurement` 이후 빌드를 쓰면 다음도 확인합니다. Redis `Server-Timing: engine`은 PUT·GET·실행된 미스에는 있고 `/health`·검증 실패에는 없어야 합니다. 원시 GET 본문 길이를 확인하고, 실험의 성공 표본 5/5와 누락 0을 확인합니다. RDBMS는 `engine_scope`, 직렬화 포함 보고를 확인합니다. 실제 네이티브 벤치마크(설정이 고른 `build/todo-remaining` 또는 `build/todo-measurement`의 `mini-*-benchmark.exe`)로는 다음을 확인합니다. 3개 시스템 × 2회의 교대 순서, `floor` 적중 수, 시스템 간 전체 조회 checksum 일치, scan 순수 탐색 null, B+ 오프셋 checksum이 값 checksum과 다름, `equivalent_structure_comparison: false`, 빌드·flush metadata, 데이터 정리, 소유 복사본 목록. scan 작업량 상한 거부와 실제 실행 중 중단(자식 종료·정리 후 다음 작업 가능)도 확인합니다. 그다음 프록시를 통해 CRUD, TTL 만료, 빈 값, 오류 구분, SQL, 415/422, 모드 재시작, 놀이터 초기화를 확인합니다. 실험 실행기(브라우저와 같은 코드)는 2회 반복, 순서 회전, 원시 기록과 표본 수(성공 요청마다 engine_ms 하나), 실제 실행 순서·flush 조건 기록, 현재 Redis 네임스페이스 정리, 연결 불가 시 중단, 사용자 중단을 검증합니다. 출처 검사도 포함합니다. 리뷰 회귀 테스트도 있습니다. 놀이터 동시 시작(registry와 관리 API 모두에서 정확히 하나만 성공), 시작 중 초기화·실험 정리 거부, 시작 실패 후 예약 해제, 소유 표시 없는 기존 놀이터·실험 디렉터리의 사용·삭제 거부를 확인합니다. 데이터는 `data/test-<임의값>`에 만들고 끝나면 삭제합니다. 실행 파일이 없으면 이 테스트들은 건너뜁니다.
 
 ## 10. 앞으로 할 수 있는 실험

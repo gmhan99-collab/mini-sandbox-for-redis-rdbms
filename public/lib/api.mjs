@@ -2,7 +2,7 @@
 // rtt_ms는 브라우저 fetch 호출 직전부터 본문(arrayBuffer) 수신 완료까지이며 프록시 통과 시간을 포함한다.
 // 디코딩·JSON 파싱·판정은 rtt_ms를 잰 뒤에 한다.
 
-import { extract_rdbms_scope, extract_rdbms_stats_metrics, is_finite_duration, parse_server_timing, server_timing_metrics } from "./metrics.mjs";
+import { extract_rdbms_counts, extract_rdbms_scope, extract_rdbms_stats_metrics, is_finite_duration, parse_server_timing, server_timing_metrics } from "./metrics.mjs";
 
 // 브라우저에서는 같은 출처의 상대 경로를 쓴다. Node 통합 테스트만 절대 주소를 지정한다.
 function sandbox_url(relative_path) {
@@ -50,6 +50,7 @@ export async function call_upstream(kind, base_url, method, upstream_path, optio
     // stats는 RDBMS 응답의 엔진 지표다. Redis /health의 stats(버킷 통계, rehash_ms 등)는 요청 시간이 아니므로 서버 지표로 해석하지 않는다.
     const is_rdbms_response = kind === "rdbms" && !via_proxy_error && json !== null;
     const server_scope = is_rdbms_response ? extract_rdbms_scope(json.stats) : null;
+    const server_counts = is_rdbms_response ? extract_rdbms_counts(json.stats) : null;
     if (is_rdbms_response && json.stats) {
         const extracted = extract_rdbms_stats_metrics(json.stats);
         Object.assign(server_metrics, extracted.metrics);
@@ -72,6 +73,7 @@ export async function call_upstream(kind, base_url, method, upstream_path, optio
         server_timing_raw,
         server_metrics,
         server_scope,
+        server_counts,
         metric_problems
     };
 }

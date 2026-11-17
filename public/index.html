@@ -150,7 +150,8 @@
 
     <section class="system-section system-rdbms" aria-labelledby="sql-title">
         <h2 id="sql-title">SQL 실행</h2>
-        <p class="hint">한 번에 한 문장만 보낼 수 있습니다(최대 65,535바이트). <br>지원: <code>INSERT INTO records (value) VALUES ('...')</code>, <code>SELECT * FROM records</code>, <code>SELECT ... WHERE 컬럼 = 값</code>. <br>DELETE·UPDATE·CREATE TABLE은 엔진이 지원하지 않습니다.</p>
+        <p class="hint">한 번에 한 문장만 보낼 수 있습니다(최대 65,535바이트). <br>지원: <code>INSERT INTO records (value) VALUES ('...')</code>, <code>SELECT * FROM records</code>, <code>SELECT ... WHERE 컬럼 = 값</code>, <code>DELETE FROM records WHERE 컬럼 = 값</code>(DELETE 지원 빌드만). <br>UPDATE·CREATE TABLE은 엔진이 지원하지 않습니다.</p>
+        <p class="hint" id="sql-delete-hint">DELETE 예시 버튼은 SQL 입력란만 채우고 실행하지 않습니다. 실행 버튼을 눌러야 삭제합니다. WHERE가 없는 DELETE는 엔진이 거부하며, 삭제 건수는 서버가 보고한 <code>stats.deleted_rows</code>만 표시합니다. 이전 빌드에서는 DELETE가 오류로 끝납니다.</p>
         <div class="condition-card">
             <label for="sql-text" class="form-label">SQL</label>
             <textarea id="sql-text" class="form-control" rows="3" spellcheck="false">SELECT * FROM records;</textarea>
@@ -159,6 +160,7 @@
                 <button type="button" class="btn btn-outline-primary" data-sql="INSERT INTO records (value) VALUES ('안녕하세요');">INSERT 예시</button>
                 <button type="button" class="btn btn-outline-primary" data-sql="SELECT * FROM records WHERE id = 1;">ID 조회 예시</button>
                 <button type="button" class="btn btn-outline-primary" data-sql="SELECT value FROM records WHERE value = '안녕하세요';">값 조회 예시</button>
+                <button type="button" class="btn btn-outline-danger" data-sql="DELETE FROM records WHERE id = 1;" aria-describedby="sql-delete-hint">DELETE 예시(입력만)</button>
             </div>
         </div>
         <div class="result" id="sql-result" role="status" aria-live="polite"></div>

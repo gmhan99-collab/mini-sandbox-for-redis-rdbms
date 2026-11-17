@@ -9,6 +9,7 @@
     "../hjm-mini-redis/build/sandbox-backend/mini-redis.exe"
   ],
   "rdbms_executable": [
+    "../hjm-mini-rdbms/build/delete-api/mini-rdbms-server.exe",
     "../hjm-mini-rdbms/build/todo-remaining/mini-rdbms-server.exe",
     "../hjm-mini-rdbms/build/todo-measurement/mini-rdbms-server.exe",
     "../hjm-mini-rdbms/build/sandbox-backend/mini-rdbms-server.exe"
@@ -18,6 +19,7 @@
     "../hjm-mini-redis/build/todo-measurement/mini-redis-benchmark.exe"
   ],
   "rdbms_benchmark_executable": [
+    "../hjm-mini-rdbms/build/delete-api/mini-rdbms-benchmark.exe",
     "../hjm-mini-rdbms/build/todo-remaining/mini-rdbms-benchmark.exe",
     "../hjm-mini-rdbms/build/todo-measurement/mini-rdbms-benchmark.exe"
   ],
