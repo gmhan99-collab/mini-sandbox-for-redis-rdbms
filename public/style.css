@@ -1,0 +1,434 @@
+:root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --text: #1d2330;
+    --muted: #5b6475;
+    --border: #d5d9e0;
+    --accent: #2457c5;
+    --accent-text: #ffffff;
+    --ok: #1d7a3e;
+    --ok-bg: #e7f5ec;
+    --error: #b3261e;
+    --error-bg: #fdecea;
+    --warn: #8a5a00;
+    --warn-bg: #fff4dc;
+    --code-bg: #eef1f5;
+    color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #14171d;
+        --surface: #1c2029;
+        --text: #e5e8ee;
+        --muted: #a3abba;
+        --border: #363c4a;
+        --accent: #7aa2ff;
+        --accent-text: #0d1220;
+        --ok: #7fd49c;
+        --ok-bg: #173323;
+        --error: #ff9b92;
+        --error-bg: #3a1d1b;
+        --warn: #f2c46b;
+        --warn-bg: #3a2d12;
+        --code-bg: #262b36;
+    }
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    line-height: 1.55;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+}
+
+/* 넓은 화면에서는 결과 표에 공간을 더 주고, 너무 넓어져 읽기 어려워지지 않도록 상한을 둔다. */
+.page-header,
+main,
+.page-footer {
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: 0 clamp(12px, 3vw, 40px);
+}
+
+main > section {
+    min-width: 0;
+}
+
+.page-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    margin: 8px 0 0;
+}
+
+.page-toolbar .hint {
+    margin: 0;
+    flex: 1 1 280px;
+}
+
+.page-toolbar #clear-results-status:empty {
+    display: none;
+}
+
+.page-header h1 small,
+h2 small {
+    color: var(--muted);
+    font-size: 0.6em;
+    font-weight: 500;
+}
+
+section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px clamp(12px, 2vw, 24px);
+    margin: 16px 0;
+}
+
+h2 {
+    margin-top: 0;
+    font-size: 1.2rem;
+}
+
+h3 {
+    margin: 0 0 8px;
+}
+
+code {
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 0 4px;
+    font-size: 0.92em;
+}
+
+.hint {
+    color: var(--muted);
+    font-size: 0.92rem;
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+    gap: 16px;
+}
+
+.card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin: 6px 0;
+}
+
+.row input {
+    flex: 1 1 200px;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 8px 12px;
+    align-items: center;
+}
+
+.form-grid .full {
+    grid-column: 1 / -1;
+}
+
+@media (max-width: 640px) {
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+input,
+textarea,
+select,
+button {
+    font: inherit;
+    color: inherit;
+}
+
+input,
+textarea,
+select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    max-width: 100%;
+}
+
+textarea {
+    width: 100%;
+    font-family: ui-monospace, Consolas, monospace;
+}
+
+button {
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--accent-text);
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+}
+
+button.secondary {
+    background: transparent;
+    color: var(--accent);
+}
+
+button.danger {
+    background: transparent;
+    color: var(--error);
+    border-color: var(--error);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* fieldset의 기본 min-width(min-content) 때문에 긴 select 옵션이 좁은 화면에서 페이지를 넓히지 않게 한다. */
+fieldset {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    min-width: 0;
+}
+
+select {
+    min-width: 0;
+    text-overflow: ellipsis;
+}
+
+.row select {
+    flex: 1 1 auto;
+    width: 100%;
+}
+
+fieldset label {
+    display: inline-block;
+    margin-right: 14px;
+}
+
+.managed-box {
+    margin: 8px 0;
+}
+
+.badge {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.85rem;
+    border: 1px solid var(--border);
+    color: var(--muted);
+}
+
+.badge.managed {
+    background: var(--warn-bg);
+    color: var(--warn);
+    border-color: var(--warn);
+}
+
+.status,
+.result {
+    margin-top: 8px;
+    font-size: 0.93rem;
+}
+
+.ok-box,
+.error-box,
+.warn-box {
+    border-radius: 6px;
+    padding: 8px 10px;
+    border-left: 4px solid;
+}
+
+.ok-box {
+    background: var(--ok-bg);
+    border-color: var(--ok);
+}
+
+.error-box {
+    background: var(--error-bg);
+    border-color: var(--error);
+}
+
+.warn-box {
+    background: var(--warn-bg);
+    border-color: var(--warn);
+}
+
+.metrics {
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+pre {
+    background: var(--code-bg);
+    padding: 8px;
+    border-radius: 6px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 6px 0;
+}
+
+/* 가로 스크롤은 표 영역 안에서만 생긴다. 페이지 전체는 넘치지 않는다. */
+.table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+}
+
+.table-wrap:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.9rem;
+    margin: 8px 0;
+}
+
+/* 열이 많은 결과 표는 수치가 잘리지 않을 최소 너비를 확보하고, 좁으면 표 영역 안에서 스크롤한다. */
+table.wide {
+    min-width: 960px;
+}
+
+caption {
+    text-align: left;
+    font-weight: 600;
+    padding: 4px 0;
+}
+
+th,
+td {
+    border: 1px solid var(--border);
+    padding: 4px 8px;
+    text-align: left;
+    vertical-align: top;
+}
+
+/* 수치 셀: 숫자·소수·단위·범위가 한 줄에 남도록 줄바꿈을 막고, 자릿수를 맞춰 오른쪽 정렬한다. */
+td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+}
+
+/* 설명 셀: 줄바꿈을 허용하되 너무 좁아지지 않게 한다. */
+td.desc {
+    min-width: 18em;
+    max-width: 60em;
+}
+
+td.text,
+td.label-cell {
+    min-width: 7em;
+}
+
+td.label-cell {
+    word-break: keep-all;
+    overflow-wrap: normal;
+}
+
+td.checksum {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.85em;
+    /* 16자리 checksum 하나가 한 줄에 들어가게 하고, 여러 값이면 값 사이에서 줄을 바꾼다. */
+    min-width: 17em;
+    word-break: normal;
+    overflow-wrap: anywhere;
+}
+
+th {
+    background: var(--code-bg);
+    word-break: keep-all;
+    overflow-wrap: normal;
+}
+
+thead th {
+    vertical-align: bottom;
+}
+
+tbody th[scope="row"] {
+    min-width: 9em;
+}
+
+.progress-box progress {
+    width: 100%;
+    height: 14px;
+}
+
+.run-block {
+    border-top: 1px solid var(--border);
+    margin-top: 12px;
+    padding-top: 8px;
+}
+
+.request-log {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.85rem;
+    max-height: 260px;
+    overflow-y: auto;
+    padding-left: 2.5em;
+}
+
+.request-log .bad {
+    color: var(--error);
+}
+
+.page-footer {
+    color: var(--muted);
+    font-size: 0.85rem;
+    padding-bottom: 24px;
+}
+
+/* 표본이 적은 통계와 서버 미제공 지표 표시 */
+td.caution {
+    background: var(--warn-bg);
+    color: var(--warn);
+}
+
+tr.not-provided td {
+    color: var(--muted);
+    font-style: italic;
+}
+
+#saved-results {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.85rem;
+}
+
+/* 버킷 구조 비교: 지원하지 않는 빌드 안내와 긴 분포 설명 셀 */
+.warn-text {
+    color: var(--warn);
+}
