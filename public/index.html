@@ -4,81 +4,116 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>미니 샌드박스</title>
+    <!-- Bootstrap 5.3.9 CSS를 로컬 파일로 읽는다(빌드 없음, 네트워크 불필요). 출처·해시: vendor/bootstrap/5.3.9/SOURCE.md. Bootstrap JS는 쓰지 않는다. -->
+    <link rel="stylesheet" href="vendor/bootstrap/5.3.9/bootstrap.min.css">
     <link rel="stylesheet" href="style.css">
     <script type="module" src="app.mjs"></script>
 </head>
 <body>
 <header class="page-header">
     <h1>미니 샌드박스 <small>mini-redis · mini-rdbms</small></h1>
-    <p>같은 PC에서 실행 중인 두 서버를 직접 호출하고, 작은 삽입·조회 실험을 해 볼 수 있습니다. 모든 요청은 이 페이지의 로컬 프록시(<code>127.0.0.1</code>)를 거쳐 전달됩니다.</p>
+    <p class="lead-text">같은 PC에서 실행 중인 두 서버를 직접 호출하고, 작은 삽입·조회 실험을 해 볼 수 있습니다. 모든 요청은 이 페이지의 로컬 프록시(<code>127.0.0.1</code>)를 거쳐 전달됩니다.</p>
+    <div class="server-summary" role="region" aria-labelledby="server-summary-title">
+        <div class="summary-head">
+            <h2 id="server-summary-title" class="summary-title">서버 상태</h2>
+            <p class="hint summary-note" id="server-summary-note">마지막으로 직접 확인한 결과입니다. 자동으로 다시 확인하지 않습니다.</p>
+            <button type="button" id="summary-open-connection" class="btn btn-sm btn-outline-primary">서버 연결 탭 열기</button>
+        </div>
+        <dl class="summary-list">
+            <div class="summary-item" id="summary-redis">
+                <dt><span class="system-mark system-redis" aria-hidden="true"></span>mini-redis</dt>
+                <dd data-summary-field="text">불러오는 중…</dd>
+            </div>
+            <div class="summary-item" id="summary-rdbms">
+                <dt><span class="system-mark system-rdbms" aria-hidden="true"></span>mini-rdbms</dt>
+                <dd data-summary-field="text">불러오는 중…</dd>
+            </div>
+        </dl>
+    </div>
     <div class="page-toolbar" role="region" aria-label="결과 표시 관리">
-        <button type="button" id="clear-results" class="secondary" aria-describedby="clear-results-hint">결과 표시 지우기</button>
-        <p class="hint" id="clear-results-hint">Redis·SQL 결과, 요청 기록, HTTP 실험·C 벤치마크·버킷 구조 비교 결과와 내보내기 대상을 화면에서 지웁니다. 저장된 파일·주소·입력값·서버 상태는 그대로 둡니다.</p>
+        <button type="button" id="clear-results" class="btn btn-outline-secondary" aria-describedby="clear-results-hint">결과 표시 지우기</button>
+        <p class="hint" id="clear-results-hint">모든 탭의 Redis·SQL 결과, 요청 기록, HTTP 실험·C 벤치마크·버킷 구조 비교 결과와 내보내기 대상을 화면에서 지웁니다. 저장된 파일·주소·입력값·서버 상태는 그대로 둡니다.</p>
         <p class="hint" id="clear-results-status" role="status" aria-live="polite"></p>
     </div>
+    <nav class="tab-strip" aria-label="실험 영역">
+        <div class="tab-list" role="tablist" id="page-tablist" aria-label="실험 영역">
+            <button type="button" class="page-tab" role="tab" id="tab-connection" aria-controls="panel-connection" aria-selected="true" tabindex="0"><span class="tab-label">서버 연결</span> <span class="tab-status" data-tab-status></span></button>
+            <button type="button" class="page-tab" role="tab" id="tab-redis-sql" aria-controls="panel-redis-sql" aria-selected="false" tabindex="-1"><span class="tab-label">Redis·SQL 실행</span> <span class="tab-status" data-tab-status></span></button>
+            <button type="button" class="page-tab" role="tab" id="tab-http" aria-controls="panel-http" aria-selected="false" tabindex="-1"><span class="tab-label">HTTP 성능 비교</span> <span class="tab-status" data-tab-status></span></button>
+            <button type="button" class="page-tab" role="tab" id="tab-native" aria-controls="panel-native" aria-selected="false" tabindex="-1"><span class="tab-label">C 벤치마크</span> <span class="tab-status" data-tab-status></span></button>
+            <button type="button" class="page-tab" role="tab" id="tab-bucket" aria-controls="panel-bucket" aria-selected="false" tabindex="-1"><span class="tab-label">버킷 구조 비교</span> <span class="tab-status" data-tab-status></span></button>
+        </div>
+    </nav>
 </header>
 
 <main>
+    <div class="tab-panel" role="tabpanel" id="panel-connection" aria-labelledby="tab-connection" tabindex="0">
+    <div class="panel-toolbar" role="group" aria-label="서버 연결 탭 결과 지우기">
+        <button type="button" id="clear-scope-connection" class="btn btn-outline-secondary" aria-label="이 탭 결과 지우기 (서버 연결)" aria-describedby="clear-scope-connection-hint clear-scope-connection-lock">이 탭 결과 지우기</button>
+        <p class="hint" id="clear-scope-connection-hint">이 탭의 요청 기록 줄(상태 확인·관리형 동작)만 지웁니다. 상태 확인 결과, 상단 서버 요약, 관리형 서버·주소는 연결 상태라서 지우지 않습니다.</p>
+        <p class="hint" id="clear-scope-connection-lock"></p>
+        <p class="hint" id="clear-scope-connection-status" role="status" aria-live="polite"></p>
+    </div>
     <section aria-labelledby="connection-title">
-        <h2 id="connection-title">1. 연결 설정</h2>
+        <h2 id="connection-title">서버 연결 설정</h2>
         <p class="hint">주소를 직접 입력하면 <strong>수동</strong> 연결입니다. 아래 “관리형 시작”을 누르면 샌드박스가 직접 실행한 서버로 주소가 바뀌고 <strong>관리형</strong>으로 표시됩니다. 샌드박스는 자신이 실행한 프로세스와 <code>mini-sandbox/data</code> 아래 자신이 만든 데이터만 중지·삭제합니다.</p>
         <div class="cards">
-            <article class="card" id="redis-card">
+            <article class="card system-card system-redis" id="redis-card">
                 <h3>mini-redis</h3>
-                <label for="redis-url">주소</label>
-                <div class="row">
-                    <input id="redis-url" type="url" autocomplete="off" spellcheck="false">
-                    <span class="badge" id="redis-source">수동</span>
+                <label for="redis-url" class="form-label">주소</label>
+                <div class="control-row">
+                    <input id="redis-url" class="form-control" type="url" autocomplete="off" spellcheck="false">
+                    <span class="badge source-badge" id="redis-source">수동</span>
                 </div>
-                <div class="row">
-                    <button type="button" id="redis-health">상태 확인</button>
+                <div class="control-row">
+                    <button type="button" id="redis-health" class="btn btn-primary">상태 확인</button>
                 </div>
                 <fieldset class="managed-box">
                     <legend>관리형 Redis — 버킷 내부 구조 (생성 시에만 적용)</legend>
                     <p class="hint">같은 해시 테이블 안에서 <strong>버킷의 충돌 엔트리</strong>를 어떤 자료구조로 둘지 고릅니다. 데이터베이스 전체를 B+ 트리로 바꾸는 기능이 아닙니다. 실행 중인 서버의 구조는 바꾸지 않습니다. 수동 연결 서버는 서버가 <code>/health</code>로 보고한 구조만 표시합니다.</p>
-                    <label for="redis-bucket-structure">버킷 구조</label>
-                    <div class="row">
-                        <select id="redis-bucket-structure">
+                    <label for="redis-bucket-structure" class="form-label">버킷 구조</label>
+                    <div class="control-row">
+                        <select id="redis-bucket-structure" class="form-select">
                             <option value="">기본값 (옵션 없이 시작, 서버 기본 list)</option>
                             <option value="list">list — 단일 연결 리스트</option>
                             <option value="rbtree">rbtree — 레드블랙 트리</option>
                         </select>
                     </div>
-                    <label for="redis-bucket-buckets">초기 버킷 수 (선택, 1~65536)</label>
-                    <input id="redis-bucket-buckets" type="number" min="1" max="65536" placeholder="비우면 서버 기본값">
-                    <label for="redis-bucket-seed">해시 시드 HEX32 (선택)</label>
-                    <input id="redis-bucket-seed" maxlength="32" spellcheck="false" autocomplete="off" placeholder="비우면 OS 난수">
-                    <div class="row">
-                        <button type="button" id="redis-managed-start" class="secondary">관리형 시작</button>
-                        <button type="button" id="redis-managed-stop" class="secondary" disabled>관리형 중지</button>
+                    <label for="redis-bucket-buckets" class="form-label">초기 버킷 수 (선택, 1~65536)</label>
+                    <input id="redis-bucket-buckets" class="form-control" type="number" min="1" max="65536" placeholder="비우면 서버 기본값">
+                    <label for="redis-bucket-seed" class="form-label">해시 시드 HEX32 (선택)</label>
+                    <input id="redis-bucket-seed" class="form-control" maxlength="32" spellcheck="false" autocomplete="off" placeholder="비우면 OS 난수">
+                    <div class="control-row">
+                        <button type="button" id="redis-managed-start" class="btn btn-outline-primary">관리형 시작</button>
+                        <button type="button" id="redis-managed-stop" class="btn btn-outline-primary" disabled>관리형 중지</button>
                     </div>
                 </fieldset>
                 <div class="status" id="redis-health-result" role="status" aria-live="polite">아직 확인하지 않았습니다.</div>
             </article>
-            <article class="card" id="rdbms-card">
+            <article class="card system-card system-rdbms" id="rdbms-card">
                 <h3>mini-rdbms</h3>
-                <label for="rdbms-url">주소</label>
-                <div class="row">
-                    <input id="rdbms-url" type="url" autocomplete="off" spellcheck="false">
-                    <span class="badge" id="rdbms-source">수동</span>
+                <label for="rdbms-url" class="form-label">주소</label>
+                <div class="control-row">
+                    <input id="rdbms-url" class="form-control" type="url" autocomplete="off" spellcheck="false">
+                    <span class="badge source-badge" id="rdbms-source">수동</span>
                 </div>
-                <div class="row">
-                    <button type="button" id="rdbms-health">상태 확인</button>
+                <div class="control-row">
+                    <button type="button" id="rdbms-health" class="btn btn-primary">상태 확인</button>
                 </div>
                 <fieldset class="managed-box">
                     <legend>관리형 RDBMS (놀이터 데이터)</legend>
-                    <label for="rdbms-mode">실행 모드 <span class="hint">(서버 실행 인자 <code>--mode</code>로만 정해집니다)</span></label>
-                    <div class="row">
-                        <select id="rdbms-mode">
+                    <label for="rdbms-mode" class="form-label">실행 모드 <span class="hint">(서버 실행 인자 <code>--mode</code>로만 정해집니다)</span></label>
+                    <div class="control-row">
+                        <select id="rdbms-mode" class="form-select">
                             <option value="bptree">bptree — WHERE id = 정수에 B+ 트리 사용</option>
                             <option value="scan">scan — 모든 조회를 CSV 전체 탐색</option>
                         </select>
                     </div>
-                    <div class="row">
-                        <button type="button" id="rdbms-managed-start" class="secondary">관리형 시작</button>
-                        <button type="button" id="rdbms-managed-restart" class="secondary" disabled>선택한 모드로 재시작</button>
-                        <button type="button" id="rdbms-managed-stop" class="secondary" disabled>관리형 중지</button>
-                        <button type="button" id="rdbms-playground-reset" class="danger">놀이터 데이터 초기화</button>
+                    <div class="control-row">
+                        <button type="button" id="rdbms-managed-start" class="btn btn-outline-primary">관리형 시작</button>
+                        <button type="button" id="rdbms-managed-restart" class="btn btn-outline-primary" disabled>선택한 모드로 재시작</button>
+                        <button type="button" id="rdbms-managed-stop" class="btn btn-outline-primary" disabled>관리형 중지</button>
+                        <button type="button" id="rdbms-playground-reset" class="btn btn-outline-danger">놀이터 데이터 초기화</button>
                     </div>
                     <p class="hint" id="rdbms-playground-info"></p>
                 </fieldset>
@@ -86,63 +121,81 @@
             </article>
         </div>
     </section>
+    </div>
 
-    <section aria-labelledby="redis-title">
-        <h2 id="redis-title">2. Redis 키 조작</h2>
-        <form id="redis-form" class="form-grid">
-            <label for="redis-key">키</label>
-            <input id="redis-key" required maxlength="1024" value="greeting" spellcheck="false">
-            <label for="redis-value">값 (PUT)</label>
-            <textarea id="redis-value" rows="2">안녕하세요</textarea>
-            <label for="redis-ttl">TTL 밀리초 (선택)</label>
-            <input id="redis-ttl" inputmode="numeric" placeholder="비우면 만료 없음, 0은 서버가 거부합니다">
-            <div class="row full">
-                <button type="submit" data-method="PUT">PUT 저장</button>
-                <button type="submit" data-method="GET">GET 조회</button>
-                <button type="submit" data-method="DELETE">DELETE 삭제</button>
+    <div class="tab-panel" role="tabpanel" id="panel-redis-sql" aria-labelledby="tab-redis-sql" tabindex="0" hidden inert>
+    <div class="panel-toolbar" role="group" aria-label="Redis·SQL 실행 탭 결과 지우기">
+        <button type="button" id="clear-scope-redis-sql" class="btn btn-outline-secondary" aria-label="이 탭 결과 지우기 (Redis·SQL 실행)" aria-describedby="clear-scope-redis-sql-hint clear-scope-redis-sql-lock">이 탭 결과 지우기</button>
+        <p class="hint" id="clear-scope-redis-sql-hint">이 탭의 Redis·SQL 결과·오류와 그 요청 기록 줄만 지웁니다. 키·값·SQL 입력과 다른 탭의 결과는 그대로입니다.</p>
+        <p class="hint" id="clear-scope-redis-sql-lock"></p>
+        <p class="hint" id="clear-scope-redis-sql-status" role="status" aria-live="polite"></p>
+    </div>
+    <section class="system-section system-redis" aria-labelledby="redis-title">
+        <h2 id="redis-title">Redis 키 조작</h2>
+        <form id="redis-form" class="form-grid condition-card">
+            <label for="redis-key" class="form-label">키</label>
+            <input id="redis-key" class="form-control" required maxlength="1024" value="greeting" spellcheck="false">
+            <label for="redis-value" class="form-label">값 (PUT)</label>
+            <textarea id="redis-value" class="form-control" rows="2">안녕하세요</textarea>
+            <label for="redis-ttl" class="form-label">TTL 밀리초 (선택)</label>
+            <input id="redis-ttl" class="form-control" inputmode="numeric" placeholder="비우면 만료 없음, 0은 서버가 거부합니다">
+            <div class="control-row full">
+                <button type="submit" class="btn btn-primary" data-method="PUT">PUT 저장</button>
+                <button type="submit" class="btn btn-primary" data-method="GET">GET 조회</button>
+                <button type="submit" class="btn btn-primary" data-method="DELETE">DELETE 삭제</button>
             </div>
         </form>
         <div class="result" id="redis-result" role="status" aria-live="polite"></div>
     </section>
 
-    <section aria-labelledby="sql-title">
-        <h2 id="sql-title">3. SQL 실행</h2>
+    <section class="system-section system-rdbms" aria-labelledby="sql-title">
+        <h2 id="sql-title">SQL 실행</h2>
         <p class="hint">한 번에 한 문장만 보낼 수 있습니다(최대 65,535바이트). <br>지원: <code>INSERT INTO records (value) VALUES ('...')</code>, <code>SELECT * FROM records</code>, <code>SELECT ... WHERE 컬럼 = 값</code>. <br>DELETE·UPDATE·CREATE TABLE은 엔진이 지원하지 않습니다.</p>
-        <label for="sql-text">SQL</label>
-        <textarea id="sql-text" rows="3" spellcheck="false">SELECT * FROM records;</textarea>
-        <div class="row">
-            <button type="button" id="sql-run">실행</button>
-            <button type="button" class="secondary" data-sql="INSERT INTO records (value) VALUES ('안녕하세요');">INSERT 예시</button>
-            <button type="button" class="secondary" data-sql="SELECT * FROM records WHERE id = 1;">ID 조회 예시</button>
-            <button type="button" class="secondary" data-sql="SELECT value FROM records WHERE value = '안녕하세요';">값 조회 예시</button>
+        <div class="condition-card">
+            <label for="sql-text" class="form-label">SQL</label>
+            <textarea id="sql-text" class="form-control" rows="3" spellcheck="false">SELECT * FROM records;</textarea>
+            <div class="control-row">
+                <button type="button" id="sql-run" class="btn btn-primary">실행</button>
+                <button type="button" class="btn btn-outline-primary" data-sql="INSERT INTO records (value) VALUES ('안녕하세요');">INSERT 예시</button>
+                <button type="button" class="btn btn-outline-primary" data-sql="SELECT * FROM records WHERE id = 1;">ID 조회 예시</button>
+                <button type="button" class="btn btn-outline-primary" data-sql="SELECT value FROM records WHERE value = '안녕하세요';">값 조회 예시</button>
+            </div>
         </div>
         <div class="result" id="sql-result" role="status" aria-live="polite"></div>
     </section>
+    </div>
 
+    <div class="tab-panel" role="tabpanel" id="panel-http" aria-labelledby="tab-http" tabindex="0" hidden inert>
+    <div class="panel-toolbar" role="group" aria-label="HTTP 성능 비교 탭 결과 지우기">
+        <button type="button" id="clear-scope-http" class="btn btn-outline-secondary" aria-label="이 탭 결과 지우기 (HTTP 성능 비교)" aria-describedby="clear-scope-http-hint clear-scope-http-lock">이 탭 결과 지우기</button>
+        <p class="hint" id="clear-scope-http-hint">이 탭의 HTTP 실험 결과·진행 표시와 JSON 내보내기 대상만 지웁니다. 실험 조건, 저장된 결과 파일, 다른 탭의 결과는 그대로입니다.</p>
+        <p class="hint" id="clear-scope-http-lock"></p>
+        <p class="hint" id="clear-scope-http-status" role="status" aria-live="polite"></p>
+    </div>
     <section aria-labelledby="experiment-title">
-        <h2 id="experiment-title">4. 삽입·조회 비교 실험</h2>
-        <form id="experiment-form" class="form-grid">
-            <label for="exp-count">건수 (시스템마다 같은 값)</label>
-            <input id="exp-count" type="number" min="1" value="10">
-            <label for="exp-repeats">반복 횟수</label>
-            <input id="exp-repeats" type="number" min="1" value="1">
+        <h2 id="experiment-title">HTTP 삽입·조회 비교 실험</h2>
+        <form id="experiment-form" class="form-grid condition-card" aria-label="HTTP 실험 조건">
+            <label for="exp-count" class="form-label">건수 (시스템마다 같은 값)</label>
+            <input id="exp-count" class="form-control" type="number" min="1" value="10">
+            <label for="exp-repeats" class="form-label">반복 횟수</label>
+            <input id="exp-repeats" class="form-control" type="number" min="1" value="1">
             <fieldset class="full">
                 <legend>비교 대상</legend>
-                <label><input type="checkbox" name="system" value="redis" checked> mini-redis</label>
-                <label><input type="checkbox" name="system" value="rdbms-bptree" checked> mini-rdbms bptree 모드</label>
-                <label><input type="checkbox" name="system" value="rdbms-scan"> mini-rdbms scan 모드</label>
+                <label class="check-option"><input class="form-check-input" type="checkbox" name="system" value="redis" checked> <span class="system-mark system-redis" aria-hidden="true"></span>mini-redis</label>
+                <label class="check-option"><input class="form-check-input" type="checkbox" name="system" value="rdbms-bptree" checked> <span class="system-mark system-rdbms" aria-hidden="true"></span>mini-rdbms bptree 모드</label>
+                <label class="check-option"><input class="form-check-input" type="checkbox" name="system" value="rdbms-scan"> <span class="system-mark system-rdbms" aria-hidden="true"></span>mini-rdbms scan 모드</label>
             </fieldset>
             <fieldset class="full">
                 <legend>Redis 실험 대상</legend>
-                <label><input type="radio" name="redis-target" value="fresh" checked> 실험마다 새 Redis 인스턴스 (권장)</label>
-                <label><input type="radio" name="redis-target" value="current"> 현재 연결 주소 + 고유 네임스페이스 (실험 키만 삭제)</label>
+                <label class="check-option"><input class="form-check-input" type="radio" name="redis-target" value="fresh" checked> 실험마다 새 Redis 인스턴스 (권장)</label>
+                <label class="check-option"><input class="form-check-input" type="radio" name="redis-target" value="current"> 현재 연결 주소 + 고유 네임스페이스 (실험 키만 삭제)</label>
             </fieldset>
-            <label class="full"><input type="checkbox" id="exp-delete-data" checked> 실험이 끝나면 이번 실험의 RDBMS 데이터 디렉터리 삭제</label>
-            <div class="row full">
-                <button type="submit" id="exp-run">실험 실행</button>
-                <button type="button" id="exp-cancel" class="secondary" disabled>중단</button>
-                <button type="button" id="exp-export" class="secondary" disabled>JSON 내보내기</button>
-                <button type="button" id="exp-cleanup-all" class="danger">남은 실험 데이터 모두 삭제</button>
+            <label class="check-option full"><input class="form-check-input" type="checkbox" id="exp-delete-data" checked> 실험이 끝나면 이번 실험의 RDBMS 데이터 디렉터리 삭제</label>
+            <div class="control-row full">
+                <button type="submit" id="exp-run" class="btn btn-primary">실험 실행</button>
+                <button type="button" id="exp-cancel" class="btn btn-outline-primary" disabled>중단</button>
+                <button type="button" id="exp-export" class="btn btn-outline-primary" disabled>JSON 내보내기</button>
+                <button type="button" id="exp-cleanup-all" class="btn btn-outline-danger">남은 실험 데이터 모두 삭제</button>
             </div>
         </form>
         <p class="hint" id="exp-limits"></p>
@@ -150,7 +203,7 @@
             <progress id="exp-progress" max="1" value="0" aria-describedby="exp-progress-text"></progress>
             <p id="exp-progress-text" role="status" aria-live="polite">실험 대기 중입니다.</p>
         </div>
-        <div id="exp-results"></div>
+        <div id="exp-results" class="results-area"></div>
         <details>
             <summary>측정 방법과 해석 시 주의할 점</summary>
             <ul>
@@ -158,7 +211,7 @@
                 <li>각 시스템에 같은 값을 같은 건수만큼 보냅니다. 요청은 한 번에 하나씩 순서대로 보내며, 반복할 때마다 시스템 순서를 바꿉니다.</li>
                 <li><strong>준비</strong>(인스턴스 시작, 상태·모드 확인, 키가 비어 있는지 확인), <strong>검증</strong>(전체 조회, CSV 줄 수), <strong>정리</strong> 시간은 측정 구간에서 제외하고 따로 표시합니다.</li>
                 <li><strong>구간 시간</strong>은 해당 구간 첫 요청 시작부터 마지막 응답까지의 브라우저 시간입니다. <strong>성공 처리량</strong>은 성공 건수 ÷ 구간 시간입니다. 실패·불일치는 성공으로 세지 않습니다.</li>
-                <li>시간 지표의 정확한 시작·종료 지점과 포함 범위는 아래 “측정 경계와 해석” 표를 보세요. 통계는 <strong>성공 요청만</strong> 표본으로 쓰며, 표본 수와 누락 수를 함께 표시합니다. 서버가 보내지 않은 시간은 추정하지 않고 “서버에서 제공되지 않음”으로 표시합니다.</li>
+                <li>시간 지표의 정확한 시작·종료 지점과 포함 범위는 아래 공통 영역의 “측정 경계와 해석” 표를 보세요. 통계는 <strong>성공 요청만</strong> 표본으로 쓰며, 표본 수와 누락 수를 함께 표시합니다. 서버가 보내지 않은 시간은 추정하지 않고 “서버에서 제공되지 않음”으로 표시합니다.</li>
                 <li>실험이 끝나면 원시 요청 기록(요청 순서, 상태, 각 시간), 설정, 실행 순서, 저장·flush 조건, 실행 환경을 <code>mini-sandbox/data/results/</code>에 JSON으로 저장합니다. “JSON 내보내기”로 내려받을 수도 있습니다.</li>
                 <li><strong>저장 방식이 다릅니다.</strong> mini-redis는 프로세스 메모리에만 보관하며 종료하면 사라집니다. mini-rdbms는 INSERT마다 CSV에 덧붙이고 <code>fflush</code>합니다. fsync·WAL은 없어 전원 장애 내구성은 보장하지 않습니다. 따라서 삽입 속도 차이를 같은 조건의 DBMS 우열로 해석하지 마세요.</li>
                 <li>scan 모드도 삽입 시 B+ 트리를 유지합니다. 조회만 CSV 전체 탐색을 합니다. 작은 건수에서는 차이가 잡음보다 작을 수 있습니다.</li>
@@ -166,36 +219,44 @@
             </ul>
         </details>
     </section>
+    </div>
 
+    <div class="tab-panel" role="tabpanel" id="panel-native" aria-labelledby="tab-native" tabindex="0" hidden inert>
+    <div class="panel-toolbar" role="group" aria-label="C 벤치마크 탭 결과 지우기">
+        <button type="button" id="clear-scope-native" class="btn btn-outline-secondary" aria-label="이 탭 결과 지우기 (C 벤치마크)" aria-describedby="clear-scope-native-hint clear-scope-native-lock">이 탭 결과 지우기</button>
+        <p class="hint" id="clear-scope-native-hint">이 탭의 C 벤치마크 결과·진행 표시와 JSON 내보내기 대상만 지웁니다. 조건·실행 파일 안내, 저장된 결과 파일, 다른 탭의 결과는 그대로입니다.</p>
+        <p class="hint" id="clear-scope-native-lock"></p>
+        <p class="hint" id="clear-scope-native-status" role="status" aria-live="polite"></p>
+    </div>
     <section aria-labelledby="native-title">
-        <h2 id="native-title">5. C 내부 벤치마크 <small>(HTTP 없이 C 프로세스 안에서 반복 측정)</small></h2>
+        <h2 id="native-title">C 내부 벤치마크 <small>(HTTP 없이 C 프로세스 안에서 반복 측정)</small></h2>
         <p class="hint">짧은 조회를 HTTP로 하나씩 재면 통신·이벤트 루프 비용이 결과를 지배합니다. 여기서는 페이지가 설정만 보내고, 샌드박스가 <code>mini-redis-benchmark.exe</code> / <code>mini-rdbms-benchmark.exe</code>를 <strong>반복 비교 × 선택 시스템 수</strong>만큼만 실행합니다. 조회 반복과 라운드는 C 프로세스 안에서 수행하며, 데이터 생성·삽입·인덱스 구축·조회 목록 생성·워밍업·출력은 측정 구간 밖입니다. 반복 비교마다 시스템 실행 순서를 바꿉니다.</p>
         <div id="native-executables"></div>
-        <form id="native-form" class="form-grid">
-            <label for="native-count">데이터 건수</label>
-            <input id="native-count" type="number" min="1">
-            <label for="native-queries">라운드당 조회 수</label>
-            <input id="native-queries" type="number" min="1">
-            <label for="native-rounds">라운드 수 (프로세스 안)</label>
-            <input id="native-rounds" type="number" min="1">
-            <label for="native-seed">seed (조회 목록 재현)</label>
-            <input id="native-seed" type="number" min="0">
-            <label for="native-hit">적중 비율 %</label>
-            <input id="native-hit" type="number" min="0" max="100">
-            <label for="native-repeats">반복 비교 (프로세스 실행 횟수)</label>
-            <input id="native-repeats" type="number" min="1">
+        <form id="native-form" class="form-grid condition-card" aria-label="C 벤치마크 조건">
+            <label for="native-count" class="form-label">데이터 건수</label>
+            <input id="native-count" class="form-control" type="number" min="1">
+            <label for="native-queries" class="form-label">라운드당 조회 수</label>
+            <input id="native-queries" class="form-control" type="number" min="1">
+            <label for="native-rounds" class="form-label">라운드 수 (프로세스 안)</label>
+            <input id="native-rounds" class="form-control" type="number" min="1">
+            <label for="native-seed" class="form-label">seed (조회 목록 재현)</label>
+            <input id="native-seed" class="form-control" type="number" min="0">
+            <label for="native-hit" class="form-label">적중 비율 %</label>
+            <input id="native-hit" class="form-control" type="number" min="0" max="100">
+            <label for="native-repeats" class="form-label">반복 비교 (프로세스 실행 횟수)</label>
+            <input id="native-repeats" class="form-control" type="number" min="1">
             <fieldset class="full">
                 <legend>벤치마크 대상</legend>
-                <label><input type="checkbox" name="native-system" value="redis" checked> mini-redis 해시 테이블</label>
-                <label><input type="checkbox" name="native-system" value="rdbms-bptree" checked> mini-rdbms bptree</label>
-                <label><input type="checkbox" name="native-system" value="rdbms-scan"> mini-rdbms scan (전체 조회만)</label>
+                <label class="check-option"><input class="form-check-input" type="checkbox" name="native-system" value="redis" checked> <span class="system-mark system-redis" aria-hidden="true"></span>mini-redis 해시 테이블</label>
+                <label class="check-option"><input class="form-check-input" type="checkbox" name="native-system" value="rdbms-bptree" checked> <span class="system-mark system-rdbms" aria-hidden="true"></span>mini-rdbms bptree</label>
+                <label class="check-option"><input class="form-check-input" type="checkbox" name="native-system" value="rdbms-scan"> <span class="system-mark system-rdbms" aria-hidden="true"></span>mini-rdbms scan (전체 조회만)</label>
             </fieldset>
-            <label class="full"><input type="checkbox" id="native-keep-data"> 벤치마크용 RDBMS 데이터(<code>data/native/&lt;작업ID&gt;/</code>)를 삭제하지 않고 보존</label>
-            <div class="row full">
-                <button type="submit" id="native-run">벤치마크 실행</button>
-                <button type="button" id="native-cancel" class="secondary" disabled>중단</button>
-                <button type="button" id="native-recheck" class="secondary" hidden>상태 다시 확인</button>
-                <button type="button" id="native-export" class="secondary" disabled>JSON 내보내기</button>
+            <label class="check-option full"><input class="form-check-input" type="checkbox" id="native-keep-data"> 벤치마크용 RDBMS 데이터(<code>data/native/&lt;작업ID&gt;/</code>)를 삭제하지 않고 보존</label>
+            <div class="control-row full">
+                <button type="submit" id="native-run" class="btn btn-primary">벤치마크 실행</button>
+                <button type="button" id="native-cancel" class="btn btn-outline-primary" disabled>중단</button>
+                <button type="button" id="native-recheck" class="btn btn-outline-primary" hidden>상태 다시 확인</button>
+                <button type="button" id="native-export" class="btn btn-outline-primary" disabled>JSON 내보내기</button>
             </div>
         </form>
         <p class="hint" id="native-limits"></p>
@@ -203,7 +264,7 @@
             <progress id="native-progress" max="1" value="0" aria-describedby="native-progress-text"></progress>
             <p id="native-progress-text" role="status" aria-live="polite">벤치마크 대기 중입니다.</p>
         </div>
-        <div id="native-results"></div>
+        <div id="native-results" class="results-area"></div>
         <details>
             <summary>두 계층의 의미와 비교할 때 주의할 점</summary>
             <ul>
@@ -215,46 +276,54 @@
             </ul>
         </details>
     </section>
+    </div>
 
-    <section aria-labelledby="bucket-title">
-        <h2 id="bucket-title">6. Redis 버킷 구조 비교 <small>(list vs rbtree, 같은 해시 테이블의 버킷 내부 구조)</small></h2>
+    <div class="tab-panel" role="tabpanel" id="panel-bucket" aria-labelledby="tab-bucket" tabindex="0" hidden inert>
+    <div class="panel-toolbar" role="group" aria-label="버킷 구조 비교 탭 결과 지우기">
+        <button type="button" id="clear-scope-bucket" class="btn btn-outline-secondary" aria-label="이 탭 결과 지우기 (버킷 구조 비교)" aria-describedby="clear-scope-bucket-hint clear-scope-bucket-lock">이 탭 결과 지우기</button>
+        <p class="hint" id="clear-scope-bucket-hint">이 탭의 버킷 구조 비교 결과·진행 표시와 JSON 내보내기 대상만 지웁니다. 조건·헬퍼 안내, 저장된 결과 파일, 다른 탭의 결과는 그대로입니다.</p>
+        <p class="hint" id="clear-scope-bucket-lock"></p>
+        <p class="hint" id="clear-scope-bucket-status" role="status" aria-live="polite"></p>
+    </div>
+    <section class="system-section system-redis" aria-labelledby="bucket-title">
+        <h2 id="bucket-title">Redis 버킷 구조 비교 <small>(list vs rbtree, 같은 해시 테이블의 버킷 내부 구조)</small></h2>
         <p class="hint">같은 키·값·조회 목록·해시 시드·초기 버킷 수로 두 구조를 비교합니다. 데이터는 <code>mini-redis-bucket-benchmark.exe --prepare-only</code>가 만들고, 키에 접두사를 붙이지 않습니다(충돌 조건 보존). 그래서 HTTP 측정은 <strong>구조마다 새 전용 Redis 인스턴스</strong>에서만 하며 사용자 서버의 데이터는 건드리지 않습니다. C 측정은 구조마다 헬퍼 프로세스 하나로 실행합니다. 라운드마다 구조 순서를 바꿉니다.</p>
         <div id="bucket-executables"></div>
-        <form id="bucket-form" class="form-grid">
+        <form id="bucket-form" class="form-grid condition-card" aria-label="버킷 구조 비교 조건">
             <fieldset class="full">
                 <legend>비교 구조</legend>
-                <label><input type="checkbox" name="bucket-structure" value="list" checked> list (연결 리스트)</label>
-                <label><input type="checkbox" name="bucket-structure" value="rbtree" checked> rbtree (레드블랙 트리)</label>
+                <label class="check-option"><input class="form-check-input" type="checkbox" name="bucket-structure" value="list" checked> list (연결 리스트)</label>
+                <label class="check-option"><input class="form-check-input" type="checkbox" name="bucket-structure" value="rbtree" checked> rbtree (레드블랙 트리)</label>
             </fieldset>
             <fieldset class="full">
                 <legend>측정 계층 (결과는 따로 표시)</legend>
-                <label><input type="checkbox" name="bucket-layer" value="http" checked> HTTP 삽입·조회 (Node → 전용 Redis)</label>
-                <label><input type="checkbox" name="bucket-layer" value="native" checked> C 내부 삽입·조회</label>
+                <label class="check-option"><input class="form-check-input" type="checkbox" name="bucket-layer" value="http" checked> HTTP 삽입·조회 (Node → 전용 Redis)</label>
+                <label class="check-option"><input class="form-check-input" type="checkbox" name="bucket-layer" value="native" checked> C 내부 삽입·조회</label>
             </fieldset>
             <fieldset class="full">
                 <legend>키 분포</legend>
-                <label><input type="radio" name="bucket-distribution" value="normal" checked> 정상 분포</label>
-                <label><input type="radio" name="bucket-distribution" value="collision"> 충돌 집중 (모든 키가 최종 용량 기준 같은 버킷)</label>
+                <label class="check-option"><input class="form-check-input" type="radio" name="bucket-distribution" value="normal" checked> 정상 분포</label>
+                <label class="check-option"><input class="form-check-input" type="radio" name="bucket-distribution" value="collision"> 충돌 집중 (모든 키가 최종 용량 기준 같은 버킷)</label>
             </fieldset>
-            <label for="bucket-count">데이터 건수</label>
-            <input id="bucket-count" type="number" min="1">
-            <label for="bucket-queries">조회 수</label>
-            <input id="bucket-queries" type="number" min="1">
-            <label for="bucket-rounds">라운드 (구조 순서 교대)</label>
-            <input id="bucket-rounds" type="number" min="1">
-            <label for="bucket-seed">seed (데이터·조회 목록)</label>
-            <input id="bucket-seed" type="number" min="0">
-            <label for="bucket-hit">적중 비율 %</label>
-            <input id="bucket-hit" type="number" min="0" max="100">
-            <label for="bucket-initial">초기 버킷 수 (2의 거듭제곱)</label>
-            <input id="bucket-initial" type="number" min="1" max="65536">
-            <label for="bucket-hash-seed">해시 시드 HEX32</label>
-            <input id="bucket-hash-seed" maxlength="32" spellcheck="false" autocomplete="off">
-            <div class="row full">
-                <button type="submit" id="bucket-run">비교 실행</button>
-                <button type="button" id="bucket-cancel" class="secondary" disabled>중단</button>
-                <button type="button" id="bucket-recheck" class="secondary" hidden>상태 다시 확인</button>
-                <button type="button" id="bucket-export" class="secondary" disabled>JSON 내보내기</button>
+            <label for="bucket-count" class="form-label">데이터 건수</label>
+            <input id="bucket-count" class="form-control" type="number" min="1">
+            <label for="bucket-queries" class="form-label">조회 수</label>
+            <input id="bucket-queries" class="form-control" type="number" min="1">
+            <label for="bucket-rounds" class="form-label">라운드 (구조 순서 교대)</label>
+            <input id="bucket-rounds" class="form-control" type="number" min="1">
+            <label for="bucket-seed" class="form-label">seed (데이터·조회 목록)</label>
+            <input id="bucket-seed" class="form-control" type="number" min="0">
+            <label for="bucket-hit" class="form-label">적중 비율 %</label>
+            <input id="bucket-hit" class="form-control" type="number" min="0" max="100">
+            <label for="bucket-initial" class="form-label">초기 버킷 수 (2의 거듭제곱)</label>
+            <input id="bucket-initial" class="form-control" type="number" min="1" max="65536">
+            <label for="bucket-hash-seed" class="form-label">해시 시드 HEX32</label>
+            <input id="bucket-hash-seed" class="form-control" maxlength="32" spellcheck="false" autocomplete="off">
+            <div class="control-row full">
+                <button type="submit" id="bucket-run" class="btn btn-primary">비교 실행</button>
+                <button type="button" id="bucket-cancel" class="btn btn-outline-primary" disabled>중단</button>
+                <button type="button" id="bucket-recheck" class="btn btn-outline-primary" hidden>상태 다시 확인</button>
+                <button type="button" id="bucket-export" class="btn btn-outline-primary" disabled>JSON 내보내기</button>
             </div>
         </form>
         <p class="hint" id="bucket-limits"></p>
@@ -262,7 +331,7 @@
             <progress id="bucket-progress" max="1" value="0" aria-describedby="bucket-progress-text"></progress>
             <p id="bucket-progress-text" role="status" aria-live="polite">비교 대기 중입니다.</p>
         </div>
-        <div id="bucket-results"></div>
+        <div id="bucket-results" class="results-area"></div>
         <details>
             <summary>측정 구간과 해석 시 주의할 점</summary>
             <ul>
@@ -276,31 +345,42 @@
             </ul>
         </details>
     </section>
+    </div>
 
-    <section aria-labelledby="boundary-title">
-        <h2 id="boundary-title">7. 측정 경계와 해석</h2>
-        <p class="hint">바깥 구간이 안쪽 구간을 포함합니다: <strong>브라우저 RTT ⊃ 프록시–서버 구간 ⊃ 서버 내부 지표</strong>(RDBMS db_exec, Redis Server-Timing). 포함 관계가 있으므로 더하거나 빼서 “순수 서버 시간”을 만들지 않습니다. 프록시–서버 구간도 순수 서버 처리 시간이 아닙니다.</p>
-        <div class="table-wrap">
-            <table>
-                <caption>시간 지표의 시작·종료 지점과 포함 범위</caption>
-                <thead><tr><th scope="col">지표</th><th scope="col">계층</th><th scope="col">범위</th></tr></thead>
-                <tbody id="boundary-table-body"></tbody>
-            </table>
-        </div>
-        <p class="hint"><strong>RDBMS와 Redis 비교 시 남는 차이:</strong> RDBMS db_exec 시간은 SQL 파싱·검증, CSV 입출력(삽입은 fflush 포함), 결과 JSON 직렬화 콜백을 포함합니다. Redis 저장소 시간에는 이런 작업이 없습니다. 두 값은 같은 범위가 아니므로 “엔진 우열”로 바로 비교하지 마세요.</p>
-        <h3>기록하는 변동 요인 <small>(원인으로 단정하지 않는 측정 조건)</small></h3>
-        <ul id="variability-list"></ul>
-        <h3>저장된 결과 <button type="button" id="saved-refresh" class="secondary">새로고침</button></h3>
-        <ul id="saved-results"></ul>
-    </section>
-
-    <section aria-labelledby="log-title">
-        <h2 id="log-title">요청 기록 <small>(최근 30건, 실험 요청 제외)</small></h2>
-        <ol id="request-log" class="request-log" reversed></ol>
-    </section>
+    <div class="aux-area" role="region" aria-label="공통 보조 영역 (모든 탭에서 표시)">
+        <section class="aux-section" aria-labelledby="saved-title">
+            <details class="aux-details" open>
+                <summary><h2 id="saved-title">저장된 결과 <small>(최근 20개, 모든 실험 공통)</small></h2></summary>
+                <button type="button" id="saved-refresh" class="btn btn-sm btn-outline-primary">새로고침</button>
+                <ul id="saved-results"></ul>
+            </details>
+        </section>
+        <section class="aux-section" aria-labelledby="log-title">
+            <details class="aux-details" open>
+                <summary><h2 id="log-title">요청 기록 <small>(최근 30건, 실험 요청 제외)</small></h2></summary>
+                <ol id="request-log" class="request-log" reversed></ol>
+            </details>
+        </section>
+        <section class="aux-section" aria-labelledby="boundary-title">
+            <details class="aux-details">
+                <summary><h2 id="boundary-title">측정 경계와 해석 <small>(시간 지표 범위·변동 요인)</small></h2></summary>
+                <p class="hint">바깥 구간이 안쪽 구간을 포함합니다: <strong>브라우저 RTT ⊃ 프록시–서버 구간 ⊃ 서버 내부 지표</strong>(RDBMS db_exec, Redis Server-Timing). 포함 관계가 있으므로 더하거나 빼서 “순수 서버 시간”을 만들지 않습니다. 프록시–서버 구간도 순수 서버 처리 시간이 아닙니다.</p>
+                <div class="table-wrap">
+                    <table>
+                        <caption>시간 지표의 시작·종료 지점과 포함 범위</caption>
+                        <thead><tr><th scope="col">지표</th><th scope="col">계층</th><th scope="col">범위</th></tr></thead>
+                        <tbody id="boundary-table-body"></tbody>
+                    </table>
+                </div>
+                <p class="hint"><strong>RDBMS와 Redis 비교 시 남는 차이:</strong> RDBMS db_exec 시간은 SQL 파싱·검증, CSV 입출력(삽입은 fflush 포함), 결과 JSON 직렬화 콜백을 포함합니다. Redis 저장소 시간에는 이런 작업이 없습니다. 두 값은 같은 범위가 아니므로 “엔진 우열”로 바로 비교하지 마세요.</p>
+                <h3>기록하는 변동 요인 <small>(원인으로 단정하지 않는 측정 조건)</small></h3>
+                <ul id="variability-list"></ul>
+            </details>
+        </section>
+    </div>
 </main>
 <footer class="page-footer">
-    <p>로컬 학습용 프로토타입입니다. 인증·TLS가 없으며 loopback 주소만 허용합니다.</p>
+    <p>로컬 학습용 프로토타입입니다. 인증·TLS가 없으며 loopback 주소만 허용합니다. 화면 스타일: Bootstrap 5.3.9 CSS(MIT, 로컬 파일).</p>
 </footer>
 </body>
 </html>

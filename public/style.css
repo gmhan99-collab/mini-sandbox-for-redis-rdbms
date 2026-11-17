@@ -1,11 +1,18 @@
+/*
+ * Bootstrap 5.3.9 CSS(vendor/bootstrap/5.3.9/bootstrap.min.css) 다음에 읽는다.
+ * 색상은 아래 토큰 한 곳에서 정하고 Bootstrap 변수를 그 토큰에 연결한다. 밝은·어두운 테마는 운영체제 설정(prefers-color-scheme)을 따른다.
+ */
 :root {
     --bg: #f6f7f9;
     --surface: #ffffff;
+    --input-bg: #fbfcfd;
     --text: #1d2330;
     --muted: #5b6475;
     --border: #d5d9e0;
     --accent: #2457c5;
+    --accent-strong: #1b438f;
     --accent-text: #ffffff;
+    --check-bg: #2457c5;
     --ok: #1d7a3e;
     --ok-bg: #e7f5ec;
     --error: #b3261e;
@@ -13,18 +20,36 @@
     --warn: #8a5a00;
     --warn-bg: #fff4dc;
     --code-bg: #eef1f5;
+    /* 시스템 구분색. 색만으로 구분하지 않도록 항상 시스템 이름 글자와 함께 쓴다. */
+    --redis: #c4302b;
+    --rdbms: #2b7a78;
+    --radius: 8px;
+    --focus-ring: 3px solid var(--accent);
     color-scheme: light dark;
+
+    --bs-body-bg: var(--bg);
+    --bs-body-color: var(--text);
+    --bs-emphasis-color: var(--text);
+    --bs-secondary-color: var(--muted);
+    --bs-border-color: var(--border);
+    --bs-tertiary-bg: var(--code-bg);
+    --bs-body-font-family: system-ui, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    --bs-body-line-height: 1.55;
+    --bs-border-radius: 6px;
 }
 
 @media (prefers-color-scheme: dark) {
     :root {
         --bg: #14171d;
         --surface: #1c2029;
+        --input-bg: #161a21;
         --text: #e5e8ee;
         --muted: #a3abba;
         --border: #363c4a;
         --accent: #7aa2ff;
+        --accent-strong: #a9c2ff;
         --accent-text: #0d1220;
+        --check-bg: #3a6be0;
         --ok: #7fd49c;
         --ok-bg: #173323;
         --error: #ff9b92;
@@ -32,7 +57,19 @@
         --warn: #f2c46b;
         --warn-bg: #3a2d12;
         --code-bg: #262b36;
+        --redis: #ff8a80;
+        --rdbms: #6fd3cf;
     }
+
+    /* Bootstrap 기본 화살표는 어두운 색이라 어두운 배경에서는 Bootstrap 어두운 테마의 화살표로 바꾼다. */
+    .form-select {
+        --bs-form-select-bg-img: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23dee2e6' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+    }
+}
+
+/* 숨긴 탭 패널과 hidden 버튼은 어떤 Bootstrap 유틸리티·display 규칙보다 우선해 숨긴다. */
+[hidden] {
+    display: none !important;
 }
 
 * {
@@ -43,10 +80,14 @@ body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: system-ui, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    font-family: var(--bs-body-font-family);
     line-height: 1.55;
     word-break: keep-all;
     overflow-wrap: anywhere;
+}
+
+a {
+    color: var(--accent);
 }
 
 /* 넓은 화면에서는 결과 표에 공간을 더 주고, 너무 넓어져 읽기 어려워지지 않도록 상한을 둔다. */
@@ -58,8 +99,144 @@ main,
     padding: 0 clamp(12px, 3vw, 40px);
 }
 
-main > section {
+.page-header h1 {
+    font-size: 1.6rem;
+    margin: 16px 0 4px;
+}
+
+.lead-text {
+    margin-bottom: 8px;
+    color: var(--muted);
+}
+
+main > section,
+.tab-panel > section {
     min-width: 0;
+}
+
+.page-header h1 small,
+h2 small,
+h3 small {
+    color: var(--muted);
+    font-size: 0.6em;
+    font-weight: 500;
+}
+
+section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px clamp(12px, 2vw, 24px);
+    margin: 16px 0;
+}
+
+h2 {
+    margin-top: 0;
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+h3 {
+    margin: 0 0 8px;
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+code {
+    background: var(--code-bg);
+    color: inherit;
+    border-radius: 4px;
+    padding: 0 4px;
+    font-size: 0.92em;
+}
+
+.hint {
+    color: var(--muted);
+    font-size: 0.92rem;
+}
+
+/* ---- 상단 공통 영역: 서버 상태 요약과 결과 표시 관리 ---- */
+
+.server-summary {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+}
+
+.summary-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+}
+
+.summary-title {
+    font-size: 1rem;
+    margin: 0;
+}
+
+.summary-note {
+    margin: 0;
+    flex: 1 1 240px;
+    font-size: 0.85rem;
+}
+
+.summary-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+    gap: 4px 16px;
+    margin: 6px 0 0;
+}
+
+.summary-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 8px;
+    min-width: 0;
+}
+
+.summary-item dt {
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.summary-item dd {
+    margin: 0;
+    min-width: 0;
+}
+
+.summary-state {
+    display: inline-block;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    padding: 0 8px;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.summary-state[data-state="ok"] {
+    color: var(--ok);
+    background: var(--ok-bg);
+    border-color: var(--ok);
+}
+
+.summary-state[data-state="error"] {
+    color: var(--error);
+    background: var(--error-bg);
+    border-color: var(--error);
+}
+
+.summary-state[data-state="busy"] {
+    color: var(--warn);
+    background: var(--warn-bg);
+    border-color: var(--warn);
+}
+
+.summary-detail {
+    color: var(--muted);
+    font-size: 0.88rem;
 }
 
 .page-toolbar {
@@ -79,41 +256,117 @@ main > section {
     display: none;
 }
 
-.page-header h1 small,
-h2 small {
+/* 패널마다의 "이 탭 결과 지우기". 상단 전체 지우기와 같은 버튼 스타일과 배치를 쓴다. */
+.panel-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    margin: 12px 0 0;
+}
+
+.panel-toolbar .hint {
+    margin: 0;
+    flex: 1 1 280px;
+    min-width: 0;
+}
+
+.panel-toolbar .hint:empty {
+    display: none;
+}
+
+/* ---- 실험별 탭 ---- */
+
+.tab-strip {
+    margin: 12px 0 0;
+    border-bottom: 1px solid var(--border);
+}
+
+/* 작은 화면에서는 탭 줄만 가로로 스크롤한다. 페이지 전체는 넘치지 않는다. */
+.tab-list {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    /* 선택 탭의 -1px 겹침이 세로 스크롤 막대를 만들지 않게 한다. */
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    padding: 4px 2px 0;
+}
+
+.page-tab {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    margin-bottom: -1px;
+    padding: 8px 14px;
+    border: 1px solid transparent;
+    border-bottom: 0;
+    border-radius: 6px 6px 0 0;
+    background: transparent;
     color: var(--muted);
-    font-size: 0.6em;
+    font: inherit;
     font-weight: 500;
+    cursor: pointer;
 }
 
-section {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px clamp(12px, 2vw, 24px);
-    margin: 16px 0;
-}
-
-h2 {
-    margin-top: 0;
-    font-size: 1.2rem;
-}
-
-h3 {
-    margin: 0 0 8px;
-}
-
-code {
+.page-tab:hover {
+    color: var(--text);
     background: var(--code-bg);
-    border-radius: 4px;
-    padding: 0 4px;
-    font-size: 0.92em;
 }
 
-.hint {
-    color: var(--muted);
-    font-size: 0.92rem;
+/* 선택 상태는 색 외에도 굵은 글자, 위쪽 막대, 패널과 이어진 테두리로 보인다. */
+.page-tab[aria-selected="true"] {
+    color: var(--text);
+    background: var(--surface);
+    border-color: var(--border);
+    font-weight: 700;
+    box-shadow: inset 0 3px 0 var(--accent);
 }
+
+.page-tab:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -3px;
+}
+
+.tab-status {
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    padding: 0 8px;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.tab-status:empty {
+    display: none;
+}
+
+.page-tab[data-activity="busy"] .tab-status {
+    color: var(--warn);
+    background: var(--warn-bg);
+}
+
+.page-tab[data-activity="attention"] .tab-status {
+    color: var(--error);
+    background: var(--error-bg);
+}
+
+.tab-panel {
+    min-width: 0;
+}
+
+.tab-panel:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+}
+
+.tab-panel > section:first-child {
+    margin-top: 12px;
+}
+
+/* ---- 카드·입력 ---- */
 
 .cards {
     display: grid;
@@ -122,12 +375,50 @@ code {
 }
 
 .card {
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    --bs-card-bg: var(--surface);
+    --bs-card-border-color: var(--border);
+    --bs-card-border-radius: var(--radius);
     padding: 12px 14px;
 }
 
-.row {
+.system-card.system-redis,
+.system-section.system-redis {
+    border-top: 4px solid var(--redis);
+}
+
+.system-card.system-rdbms,
+.system-section.system-rdbms {
+    border-top: 4px solid var(--rdbms);
+}
+
+/* 시스템 구분 표시: 이름 앞의 작은 색 표시. 이름 글자가 항상 같이 있으므로 색은 보조 단서다. */
+.system-mark {
+    display: inline-block;
+    width: 0.7em;
+    height: 0.7em;
+    border-radius: 2px;
+    margin-right: 0.35em;
+    vertical-align: baseline;
+}
+
+.system-mark.system-redis {
+    background: var(--redis);
+}
+
+.system-mark.system-rdbms {
+    background: var(--rdbms);
+}
+
+/* 실험 조건 묶음 */
+.condition-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin: 8px 0;
+}
+
+.control-row {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -135,81 +426,66 @@ code {
     margin: 6px 0;
 }
 
-.row input {
+.control-row .form-control {
     flex: 1 1 200px;
+    width: auto;
 }
 
 .form-grid {
     display: grid;
-    grid-template-columns: max-content 1fr;
+    grid-template-columns: max-content minmax(0, 1fr);
     gap: 8px 12px;
     align-items: center;
+}
+
+.form-grid .form-label {
+    margin: 0;
 }
 
 .form-grid .full {
     grid-column: 1 / -1;
 }
 
-@media (max-width: 640px) {
+/* 넓은 화면에서는 조건 입력을 두 쌍씩 놓아 결과 표가 위로 올라오게 한다. */
+@media (min-width: 1100px) {
     .form-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr);
     }
 }
 
-input,
-textarea,
-select,
-button {
-    font: inherit;
-    color: inherit;
+@media (max-width: 640px) {
+    .form-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
-input,
-textarea,
-select {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 8px;
+.form-label {
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.form-control,
+.form-select {
+    background-color: var(--input-bg);
+    color: var(--text);
+    border-color: var(--border);
     max-width: 100%;
 }
 
-textarea {
-    width: 100%;
+.form-control:focus,
+.form-select:focus {
+    background-color: var(--input-bg);
+    color: var(--text);
+    border-color: var(--accent);
+}
+
+.form-control::placeholder {
+    color: var(--muted);
+    opacity: 0.85;
+}
+
+textarea.form-control {
     font-family: ui-monospace, Consolas, monospace;
-}
-
-button {
-    border: 1px solid var(--accent);
-    background: var(--accent);
-    color: var(--accent-text);
-    border-radius: 6px;
-    padding: 6px 12px;
-    cursor: pointer;
-}
-
-button.secondary {
-    background: transparent;
-    color: var(--accent);
-}
-
-button.danger {
-    background: transparent;
-    color: var(--error);
-    border-color: var(--error);
-}
-
-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-button:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
-    outline: 3px solid var(--accent);
-    outline-offset: 2px;
 }
 
 /* fieldset의 기본 min-width(min-content) 때문에 긴 select 옵션이 좁은 화면에서 페이지를 넓히지 않게 한다. */
@@ -217,37 +493,150 @@ fieldset {
     border: 1px solid var(--border);
     border-radius: 6px;
     min-width: 0;
+    padding: 6px 12px 8px;
 }
 
-select {
+legend {
+    float: none;
+    width: auto;
+    font-size: 0.95rem;
+    font-weight: 700;
+    padding: 0 4px;
+    margin: 0;
+}
+
+.form-select {
     min-width: 0;
     text-overflow: ellipsis;
 }
 
-.row select {
+.control-row .form-select {
     flex: 1 1 auto;
     width: 100%;
 }
 
-fieldset label {
-    display: inline-block;
-    margin-right: 14px;
+.check-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    margin: 2px 14px 2px 0;
+    cursor: pointer;
+}
+
+.check-option .form-check-input {
+    float: none;
+    flex: 0 0 auto;
+    margin: 0;
+    background-color: var(--input-bg);
+    border-color: var(--muted);
+}
+
+.check-option .form-check-input:checked {
+    background-color: var(--check-bg);
+    border-color: var(--check-bg);
 }
 
 .managed-box {
     margin: 8px 0;
 }
 
-.badge {
-    display: inline-block;
+/* ---- 버튼: Bootstrap .btn의 변수를 토큰에 연결한다 ---- */
+
+.btn {
+    --bs-btn-padding-y: 0.3rem;
+    --bs-btn-padding-x: 0.75rem;
+    --bs-btn-font-weight: 500;
+    --bs-btn-disabled-opacity: 0.5;
+}
+
+.btn-primary {
+    --bs-btn-color: var(--accent-text);
+    --bs-btn-bg: var(--accent);
+    --bs-btn-border-color: var(--accent);
+    --bs-btn-hover-color: var(--accent-text);
+    --bs-btn-hover-bg: var(--accent-strong);
+    --bs-btn-hover-border-color: var(--accent-strong);
+    --bs-btn-active-color: var(--accent-text);
+    --bs-btn-active-bg: var(--accent-strong);
+    --bs-btn-active-border-color: var(--accent-strong);
+    --bs-btn-disabled-color: var(--accent-text);
+    --bs-btn-disabled-bg: var(--accent);
+    --bs-btn-disabled-border-color: var(--accent);
+}
+
+.btn-outline-primary {
+    --bs-btn-color: var(--accent);
+    --bs-btn-border-color: var(--accent);
+    --bs-btn-hover-color: var(--accent-text);
+    --bs-btn-hover-bg: var(--accent);
+    --bs-btn-hover-border-color: var(--accent);
+    --bs-btn-active-color: var(--accent-text);
+    --bs-btn-active-bg: var(--accent-strong);
+    --bs-btn-active-border-color: var(--accent-strong);
+    --bs-btn-disabled-color: var(--accent);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: var(--accent);
+}
+
+.btn-outline-secondary {
+    --bs-btn-color: var(--text);
+    --bs-btn-border-color: var(--muted);
+    --bs-btn-hover-color: var(--surface);
+    --bs-btn-hover-bg: var(--text);
+    --bs-btn-hover-border-color: var(--text);
+    --bs-btn-active-color: var(--surface);
+    --bs-btn-active-bg: var(--text);
+    --bs-btn-active-border-color: var(--text);
+    --bs-btn-disabled-color: var(--muted);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: var(--muted);
+}
+
+.btn-outline-danger {
+    --bs-btn-color: var(--error);
+    --bs-btn-border-color: var(--error);
+    --bs-btn-hover-color: var(--surface);
+    --bs-btn-hover-bg: var(--error);
+    --bs-btn-hover-border-color: var(--error);
+    --bs-btn-active-color: var(--surface);
+    --bs-btn-active-bg: var(--error);
+    --bs-btn-active-border-color: var(--error);
+    --bs-btn-disabled-color: var(--error);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: var(--error);
+}
+
+.btn:disabled {
+    cursor: not-allowed;
+    pointer-events: auto;
+}
+
+/* 모든 조작 요소의 키보드 포커스를 같은 굵은 외곽선으로 보인다. */
+.btn:focus-visible,
+.form-control:focus-visible,
+.form-select:focus-visible,
+.form-check-input:focus-visible,
+summary:focus-visible,
+a:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+    box-shadow: none;
+}
+
+/* ---- 상태 배지와 결과 상자 ---- */
+
+.badge.source-badge {
     border-radius: 999px;
     padding: 2px 10px;
     font-size: 0.85rem;
+    font-weight: 500;
     border: 1px solid var(--border);
     color: var(--muted);
+    background: transparent;
+    white-space: normal;
 }
 
-.badge.managed {
+.badge.source-badge.managed {
     background: var(--warn-bg);
     color: var(--warn);
     border-color: var(--warn);
@@ -265,6 +654,7 @@ fieldset label {
     border-radius: 6px;
     padding: 8px 10px;
     border-left: 4px solid;
+    margin: 6px 0;
 }
 
 .ok-box {
@@ -297,6 +687,12 @@ pre {
     margin: 6px 0;
 }
 
+/* ---- 결과 표 ---- */
+
+.results-area {
+    min-width: 0;
+}
+
 /* 가로 스크롤은 표 영역 안에서만 생긴다. 페이지 전체는 넘치지 않는다. */
 .table-wrap {
     max-width: 100%;
@@ -305,7 +701,7 @@ pre {
 }
 
 .table-wrap:focus-visible {
-    outline: 3px solid var(--accent);
+    outline: var(--focus-ring);
     outline-offset: 2px;
 }
 
@@ -322,8 +718,10 @@ table.wide {
 }
 
 caption {
+    caption-side: top;
     text-align: left;
     font-weight: 600;
+    color: var(--text);
     padding: 4px 0;
 }
 
@@ -386,12 +784,38 @@ tbody th[scope="row"] {
 .progress-box progress {
     width: 100%;
     height: 14px;
+    accent-color: var(--accent);
+}
+
+.progress-box p {
+    margin: 4px 0 8px;
 }
 
 .run-block {
     border-top: 1px solid var(--border);
     margin-top: 12px;
     padding-top: 8px;
+}
+
+/* ---- 공통 보조 영역 ---- */
+
+.aux-area {
+    margin-top: 8px;
+}
+
+.aux-section {
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+.aux-details > summary h2 {
+    display: inline;
+    font-size: 1.05rem;
+    margin: 0;
+}
+
+.aux-details[open] > summary {
+    margin-bottom: 8px;
 }
 
 .request-log {
@@ -426,9 +850,14 @@ tr.not-provided td {
 #saved-results {
     font-family: ui-monospace, Consolas, monospace;
     font-size: 0.85rem;
+    margin-top: 8px;
 }
 
 /* 버킷 구조 비교: 지원하지 않는 빌드 안내와 긴 분포 설명 셀 */
 .warn-text {
     color: var(--warn);
+}
+
+.multiline {
+    white-space: pre-line;
 }

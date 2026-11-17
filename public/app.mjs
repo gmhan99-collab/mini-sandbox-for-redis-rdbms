@@ -5,9 +5,11 @@ import { clamp_integer } from "./lib/experiment-core.mjs";
 import { SYSTEM_LABELS, run_experiment } from "./lib/experiment-runner.mjs";
 import { METRIC_INFO, NATIVE_SYSTEMS, VARIABILITY_CAVEATS, describe_metric } from "./lib/metrics.mjs";
 import { display_fraction_digits, format_count, format_measure, format_ms_with_unit } from "./lib/display-format.mjs";
-import { clear_result_state, create_display_tracker, has_pending_operations, is_current, pending_labels, run_tracked } from "./lib/result-display.mjs";
+import { clear_result_scope, clear_result_state, create_display_tracker, has_pending_operations, is_current, pending_labels, run_tracked } from "./lib/result-display.mjs";
 import { BUCKET_STRUCTURE_LABELS, read_bucket_health } from "./lib/bucket.mjs";
 import { render_bucket_health, render_bucket_job } from "./lib/bucket-render.mjs";
+import { create_tab_navigation, select_tab, set_tab_status } from "./lib/tab-navigation.mjs";
+import { describe_tab_activity, summarize_connection } from "./lib/page-status.mjs";
 
 const REQUEST_LOG_LIMIT = 30;
 const PHASE_LABELS = { insert: "삽입", read: "조회" };
@@ -15,8 +17,9 @@ const PHASE_LABELS = { insert: "삽입", read: "조회" };
 const state = {
     config: null,
     connections: {
-        redis: { source: "manual", managed: null, busy: false },
-        rdbms: { source: "manual", managed: null, busy: false }
+        // health: 마지막으로 실제 확인한 /health 결과(주소·시각 포함). 확인 전에는 null이며 상태를 추정하지 않는다.
+        redis: { source: "manual", managed: null, busy: false, health: null },
+        rdbms: { source: "manual", managed: null, busy: false, health: null }
     },
     experiment_running: false,
     cancel_requested: false,
@@ -60,9 +63,10 @@ function format_ms(value) {
     return typeof value === "number" ? `${format_measure(value, 2)} ms` : "—";
 }
 
-// 결과를 만드는 동작을 등록한다. 등록된 동작이 끝날 때까지 "결과 표시 지우기"를 쓸 수 없다.
-function track(label, action) {
-    return run_tracked(display_tracker, label, action, update_clear_button);
+// 결과를 만드는 동작을 등록한다. 등록된 동작이 끝날 때까지 전체·탭별 "결과 지우기"를 쓸 수 없다.
+// scope는 동작이 속한 탭(RESULT_SCOPES의 키)이다. 토큰이 그 탭의 결과 세대와 요청 기록 꼬리표를 정한다.
+function track(scope, label, action) {
+    return run_tracked(display_tracker, label, action, update_clear_button, scope);
 }
 
 // 결과를 만드는 동작이 남아 있는지. 추적 토큰 외에, 상태 확인이 실패해 아직 놓지 않은 네이티브 작업도 포함한다.
@@ -70,11 +74,8 @@ function is_result_work_outstanding() {
     return has_pending_operations(display_tracker) || state.experiment_running || state.native_starting || Boolean(state.native_job_id) || state.bucket_starting || Boolean(state.bucket_job_id);
 }
 
-function update_clear_button() {
-    const button = $("#clear-results");
-    if (!button) {
-        return;
-    }
+// 지우기를 막는 이유. 전체 지우기와 탭별 지우기가 같은 잠금을 쓴다(어느 탭의 동작이든 진행 중이면 모두 막는다).
+function describe_clear_lock() {
     const pending = [...new Set(pending_labels(display_tracker))];
     // 상태 확인이 실패한 네이티브 작업도 서버에서 아직 실행 중일 수 있으므로, 작업 ID를 놓기 전까지 지우기를 막는다.
     if (state.native_job_id && state.native_status_unresolved) {
@@ -84,10 +85,76 @@ function update_clear_button() {
         pending.push(`버킷 구조 비교 ${state.bucket_job_id} 상태 확인 필요`);
     }
     const busy = is_result_work_outstanding();
-    button.disabled = busy;
-    $("#clear-results-hint").textContent = busy
-        ? `진행 중인 동작이 끝난 뒤 사용할 수 있습니다: ${pending.join(", ") || "실행 중"}`
-        : "Redis·SQL 결과, 요청 기록, HTTP 실험·C 벤치마크·버킷 구조 비교 결과와 내보내기 대상을 화면에서 지웁니다. 저장된 파일·주소·입력값·서버 상태는 그대로 둡니다.";
+    return { busy, reason: busy ? `진행 중인 동작이 끝난 뒤 사용할 수 있습니다: ${pending.join(", ") || "실행 중"}` : "" };
+}
+
+function update_clear_button() {
+    const button = $("#clear-results");
+    if (!button) {
+        return;
+    }
+    const lock = describe_clear_lock();
+    button.disabled = lock.busy;
+    $("#clear-results-hint").textContent = lock.busy
+        ? lock.reason
+        : "모든 탭의 Redis·SQL 결과, 요청 기록, HTTP 실험·C 벤치마크·버킷 구조 비교 결과와 내보내기 대상을 화면에서 지웁니다. 저장된 파일·주소·입력값·서버 상태는 그대로 둡니다.";
+    for (const scope of Object.keys(RESULT_SCOPES)) {
+        $(`#clear-scope-${scope}`).disabled = lock.busy;
+        $(`#clear-scope-${scope}-lock`).textContent = lock.reason;
+    }
+    refresh_tab_activity();
+}
+
+// ---- 상단 탭과 공통 서버 요약 ----
+// 탭은 initialize에서 한 번만 연결한다. 탭 선택은 표시만 바꾸고 이 파일의 동작을 부르지 않는다.
+let page_tabs = null;
+
+function setup_page_tabs() {
+    page_tabs = create_tab_navigation($("#page-tablist"));
+    $("#summary-open-connection").addEventListener("click", () => select_tab(page_tabs, "tab-connection", { focus: true }));
+}
+
+function progress_of(prefix) {
+    const progress = $(`#${prefix}-progress`);
+    return { value: progress.value, max: progress.max };
+}
+
+// 숨긴 탭에서 진행 중인 동작도 탭 버튼의 글자로 알린다. 진행 상태가 바뀌는 곳(잠금 변경·진행률 갱신)에서 부른다.
+function refresh_tab_activity() {
+    if (!page_tabs) {
+        return;
+    }
+    const activity = describe_tab_activity({
+        pending_labels: pending_labels(display_tracker),
+        connections_busy: state.connections.redis.busy || state.connections.rdbms.busy,
+        experiment_running: state.experiment_running,
+        native: { starting: state.native_starting, job_id: state.native_job_id, unresolved: state.native_status_unresolved },
+        bucket: { starting: state.bucket_starting, job_id: state.bucket_job_id, unresolved: state.bucket_status_unresolved },
+        progress: { http: progress_of("exp"), native: progress_of("native"), bucket: progress_of("bucket") }
+    });
+    for (const [key, item] of Object.entries(activity)) {
+        set_tab_status(page_tabs, `tab-${key}`, item);
+    }
+}
+
+// 연결 탭의 상태 확인 결과를 다시 요청하지 않고, 마지막 확인 기록만으로 상단 요약을 그린다.
+function render_server_summary(kind) {
+    const target = $(`#summary-${kind} [data-summary-field="text"]`);
+    if (!target) {
+        return;
+    }
+    const summary = summarize_connection(kind, state.connections[kind], url_of(kind));
+    const details = [summary.source, summary.port, ...summary.details].join(" · ");
+    target.replaceChildren(
+        element("span", { class: "summary-state", "data-state": summary.health_state }, summary.health_text),
+        " ",
+        element("span", { class: "summary-detail" }, details)
+    );
+}
+
+function record_health(kind, record) {
+    state.connections[kind].health = record;
+    render_server_summary(kind);
 }
 
 const INITIAL_PROGRESS_TEXT = {
@@ -96,11 +163,57 @@ const INITIAL_PROGRESS_TEXT = {
     bucket: "비교 대기 중입니다."
 };
 
+// 탭(범위)마다 지우는 화면 요소. 키는 탭 키(page-status.mjs PAGE_TAB_KEYS)이자 track()의 scope다.
+// - results: 결과·오류·완료 표시 영역. progress: 진행 표시 접두사. export_button: 내보내기 버튼. outcome: 지운 뒤 패널 안내.
+// - 연결 탭은 상태 확인 결과·상단 서버 요약·관리형 정보를 연결 상태로 보고 지우지 않는다. 그 탭의 요청 기록 줄만 지운다.
+// 상태 필드(내보내기 대상)는 lib/result-display.mjs의 RESULT_SCOPE_STATE_DEFAULTS가 정한다.
+const RESULT_SCOPES = Object.freeze({
+    connection: { results: [], progress: null, export_button: null, outcome: "서버 연결 탭의 요청 기록 줄(상태 확인·관리형 동작)을 지웠습니다. 상태 확인 결과와 상단 서버 요약은 연결 상태라서 그대로입니다." },
+    "redis-sql": { results: ["#redis-result", "#sql-result"], progress: null, export_button: null, outcome: "Redis·SQL 결과와 그 요청 기록 줄을 지웠습니다. 다른 탭의 결과와 입력값은 그대로입니다." },
+    http: { results: ["#exp-results"], progress: "exp", export_button: "#exp-export", outcome: "HTTP 실험 결과·진행 표시와 내보내기 대상을 지웠습니다. 저장된 결과 파일과 다른 탭의 결과는 그대로입니다." },
+    native: { results: ["#native-results"], progress: "native", export_button: "#native-export", outcome: "C 벤치마크 결과·진행 표시와 내보내기 대상을 지웠습니다. 저장된 결과 파일과 다른 탭의 결과는 그대로입니다." },
+    bucket: { results: ["#bucket-results"], progress: "bucket", export_button: "#bucket-export", outcome: "버킷 구조 비교 결과·진행 표시와 내보내기 대상을 지웠습니다. 저장된 결과 파일과 다른 탭의 결과는 그대로입니다." }
+});
+
+// 한 탭의 결과 표시를 처음 상태로 되돌린다. 전체 지우기와 탭별 지우기가 함께 쓴다(상태 필드는 호출한 쪽이 이미 되돌렸다).
+function reset_scope_display(scope) {
+    const target = RESULT_SCOPES[scope];
+    for (const selector of target.results) {
+        $(selector).replaceChildren();
+    }
+    if (target.progress) {
+        const prefix = target.progress;
+        $(`#${prefix}-progress`).max = 1;
+        $(`#${prefix}-progress`).value = 0;
+        $(`#${prefix}-progress-text`).textContent = INITIAL_PROGRESS_TEXT[prefix];
+    }
+    if (target.export_button) {
+        $(target.export_button).disabled = true;
+    }
+}
+
+// 요청 기록은 모든 탭이 함께 보는 영역이다. 각 줄의 data-log-scope(요청을 만든 동작의 토큰 범위)로 그 탭의 줄만 지운다.
+function remove_scope_log_entries(scope) {
+    const log = $("#request-log");
+    for (const item of [...log.children]) {
+        if (item.getAttribute("data-log-scope") === scope) {
+            item.remove();
+        }
+    }
+}
+
+// 버튼이 비활성이어도 함수 자체가 같은 조건으로 거부한다. 미해결 네이티브·버킷 작업은 추적 토큰이 없어도 막는다.
+function refuse_clear_while_busy() {
+    if (!is_result_work_outstanding()) {
+        return false;
+    }
+    update_clear_button();
+    return true;
+}
+
 // 페이지 표시만 초기화한다. 서버·실험을 중지하지 않고, 디스크 파일(결과 JSON, CSV·인덱스, 실험 디렉터리)을 지우지 않는다.
 function clear_result_display() {
-    // 버튼이 비활성이어도 함수 자체가 같은 조건으로 거부한다. 미해결 네이티브 작업은 추적 토큰이 없어도 막는다.
-    if (is_result_work_outstanding()) {
-        update_clear_button();
+    if (refuse_clear_while_busy()) {
         return;
     }
     const outcome = clear_result_state(display_tracker, state);
@@ -108,19 +221,30 @@ function clear_result_display() {
         update_clear_button();
         return;
     }
-    for (const selector of ["#redis-result", "#sql-result", "#exp-results", "#native-results", "#bucket-results", "#request-log"]) {
-        $(selector).replaceChildren();
+    for (const scope of Object.keys(RESULT_SCOPES)) {
+        reset_scope_display(scope);
     }
-    for (const prefix of ["exp", "native", "bucket"]) {
-        $(`#${prefix}-progress`).max = 1;
-        $(`#${prefix}-progress`).value = 0;
-        $(`#${prefix}-progress-text`).textContent = INITIAL_PROGRESS_TEXT[prefix];
-    }
-    $("#exp-export").disabled = true;
-    $("#native-export").disabled = true;
-    $("#bucket-export").disabled = true;
+    $("#request-log").replaceChildren();
     $("#clear-results-status").textContent = `${new Date().toLocaleTimeString()} 결과 표시를 지웠습니다. 저장된 결과 파일, 접속 주소, 입력값, 서버 연결·관리형 상태는 그대로입니다.`;
     update_clear_button();
+}
+
+// 한 탭의 결과 표시만 초기화한다. 다른 탭의 결과·진행 표시·내보내기 대상, 선택한 탭, 포커스는 그대로 둔다.
+// 숨긴 탭에 대해 불러도 안전하다. 서버 요청·중단·폴링을 만들지 않는다.
+function clear_scope_display(scope) {
+    if (!Object.hasOwn(RESULT_SCOPES, scope) || refuse_clear_while_busy()) {
+        return false;
+    }
+    const outcome = clear_result_scope(display_tracker, state, scope);
+    if (!outcome.cleared) {
+        update_clear_button();
+        return false;
+    }
+    reset_scope_display(scope);
+    remove_scope_log_entries(scope);
+    $(`#clear-scope-${scope}-status`).textContent = `${new Date().toLocaleTimeString()} ${RESULT_SCOPES[scope].outcome}`;
+    update_clear_button();
+    return true;
 }
 
 function show(container, node) {
@@ -149,6 +273,7 @@ function render_source_badge(kind) {
         $("#rdbms-managed-restart").disabled = connection.busy || !connection.managed;
         $("#rdbms-playground-reset").disabled = connection.busy;
     }
+    render_server_summary(kind);
 }
 
 // 관리형 시작·중지·재시작·초기화가 진행 중이면 같은 종류의 다른 관리 동작을 막는다.
@@ -162,12 +287,29 @@ function run_exclusive(kind, action) {
         connection.busy = true;
         render_source_badge(kind);
         try {
-            await track(`${kind} 관리형 동작`, action);
+            // 잠금을 추적 동작 안에서 풀어야 track()의 종료 알림이 지우기 버튼과 탭 진행 표시를 풀린 상태로 함께 계산한다.
+            await track("connection", `${kind} 관리형 동작`, async () => {
+                try {
+                    await action();
+                } finally {
+                    release_connection(kind);
+                }
+            });
         } finally {
-            connection.busy = false;
-            render_source_badge(kind);
+            // track() 자체가 동작을 시작하지 못한 경우의 안전장치. 이미 풀렸으면 아무것도 하지 않는다.
+            release_connection(kind);
         }
     };
+}
+
+function release_connection(kind) {
+    const connection = state.connections[kind];
+    if (!connection.busy) {
+        return;
+    }
+    connection.busy = false;
+    render_source_badge(kind);
+    refresh_tab_activity();
 }
 
 // 각 시간은 바깥 구간이 안쪽 구간을 포함한다(브라우저 RTT ⊃ 프록시–서버 ⊃ 서버 내부 지표). 합산하지 않는다.
@@ -230,7 +372,12 @@ function log_request(kind, method, path, result, token) {
     const log = $("#request-log");
     const status_text = result.transport_ok ? `HTTP ${result.status}` : `전달 실패(${result.proxy_error ? result.proxy_error.code : "network"})`;
     const failed = !result.transport_ok || result.status >= 400;
-    const item = element("li", failed ? { class: "bad" } : {}, `${new Date().toLocaleTimeString()} ${kind} ${method} ${path} → ${status_text}, RTT ${format_ms(result.rtt_ms)}`);
+    // 탭별 지우기가 표시 문구를 해석하지 않도록, 요청을 만든 동작의 범위를 속성으로 붙인다.
+    const attributes = { "data-log-scope": token.scope || "global" };
+    if (failed) {
+        attributes.class = "bad";
+    }
+    const item = element("li", attributes, `${new Date().toLocaleTimeString()} ${kind} ${method} ${path} → ${status_text}, RTT ${format_ms(result.rtt_ms)}`);
     log.prepend(item);
     while (log.children.length > REQUEST_LOG_LIMIT) {
         log.lastElementChild.remove();
@@ -239,25 +386,38 @@ function log_request(kind, method, path, result, token) {
 
 // 상태 확인 결과는 연결 상태라서 "결과 표시 지우기" 대상이 아니다. 요청 기록의 한 줄만 지우기 대상이다.
 function check_health(kind) {
-    return track(`${kind} 상태 확인`, (token) => check_health_tracked(kind, token));
+    return track("connection", `${kind} 상태 확인`, (token) => check_health_tracked(kind, token));
 }
 
 async function check_health_tracked(kind, token) {
     const container = $(`#${kind}-health-result`);
     container.textContent = "확인 중입니다…";
-    const result = await call_upstream(kind, url_of(kind), "GET", "/health");
+    const url = url_of(kind);
+    // 상단 요약은 이 요청이 확인한 주소와 시각을 함께 기록한다. 겹친 확인 중 먼저 시작한 쪽의 늦은 응답은 요약을 덮지 않는다.
+    const check = { status: "checking", url, checked_at: Date.now(), reported: null };
+    record_health(kind, check);
+    const result = await call_upstream(kind, url, "GET", "/health");
     log_request(kind, "GET", "/health", result, token);
+    const record_result = (status, reported) => {
+        if (state.connections[kind].health === check) {
+            record_health(kind, { status, url, checked_at: Date.now(), reported });
+        }
+    };
     if (!result.transport_ok || result.status !== 200 || !result.json || result.json.ok !== true) {
+        record_result("error", null);
         show(container, element("div", { class: "error-box" }, [describe_failure(result), metrics_line(result)]));
         return;
     }
     const lines = [element("strong", {}, "정상 응답입니다.")];
     if (kind === "rdbms") {
         const health = result.json;
+        record_result("ok", typeof health.mode === "string" ? health.mode : "보고 없음");
         lines.push(element("p", {}, `서버가 보고한 현재 모드: ${health.mode} · 저장: ${health.storage} · ${health.flush} · ${health.durability} · 인덱스 저장: ${health.index_save} · 단일 스레드: ${health.single_threaded ? "예" : "아니요"}`));
     } else {
         // 수동 연결도 서버가 실제로 보고한 구조만 보여 준다. 페이지의 선택 값으로 구조를 표시하지 않는다.
-        lines.push(render_bucket_health(element, read_bucket_health(result.json)));
+        const bucket_health = read_bucket_health(result.json);
+        record_result("ok", bucket_health.supported ? bucket_health.structure : "보고 없음(이전 빌드)");
+        lines.push(render_bucket_health(element, bucket_health));
     }
     // lines.push(element("p", { class: "metrics" }, `서버 빌드: ${describe_build_info(result.json.build_info)}`));
     // lines.push(metrics_line(result));
@@ -368,7 +528,7 @@ async function reset_playground() {
 }
 
 function submit_redis(method) {
-    return track(`Redis ${method}`, (token) => submit_redis_tracked(method, token));
+    return track("redis-sql", `Redis ${method}`, (token) => submit_redis_tracked(method, token));
 }
 
 async function submit_redis_tracked(method, token) {
@@ -420,7 +580,7 @@ function render_rows_table(json) {
 }
 
 function run_sql() {
-    return track("SQL 실행", run_sql_tracked);
+    return track("redis-sql", "SQL 실행", run_sql_tracked);
 }
 
 async function run_sql_tracked(token) {
@@ -776,7 +936,7 @@ function start_experiment() {
     if (state.experiment_running) {
         return Promise.resolve();
     }
-    return track("HTTP 비교 실험", start_experiment_tracked);
+    return track("http", "HTTP 비교 실험", start_experiment_tracked);
 }
 
 async function start_experiment_tracked(token) {
@@ -800,6 +960,7 @@ async function start_experiment_tracked(token) {
             $("#exp-progress").max = total;
             $("#exp-progress").value = done;
             $("#exp-progress-text").textContent = `실행 ${run_index}/${repeats} · ${done}/${total} 요청 · ${text}`;
+            refresh_tab_activity();
         },
         run_finished: (run) => {
             if (is_current(display_tracker, token)) {
@@ -830,7 +991,7 @@ async function start_experiment_tracked(token) {
 }
 
 function cleanup_all_runs() {
-    return track("남은 실험 데이터 삭제", cleanup_all_runs_tracked);
+    return track("http", "남은 실험 데이터 삭제", cleanup_all_runs_tracked);
 }
 
 async function cleanup_all_runs_tracked() {
@@ -909,6 +1070,9 @@ function bind_events() {
     });
     $("#saved-refresh").addEventListener("click", refresh_saved_results);
     $("#clear-results").addEventListener("click", clear_result_display);
+    for (const scope of Object.keys(RESULT_SCOPES)) {
+        $(`#clear-scope-${scope}`).addEventListener("click", () => clear_scope_display(scope));
+    }
 }
 
 // ---- C 내부 벤치마크 ----
@@ -959,7 +1123,7 @@ function start_native() {
     if (state.native_job_id || state.native_starting) {
         return Promise.resolve();
     }
-    return track("C 내부 벤치마크", start_native_tracked);
+    return track("native", "C 내부 벤치마크", start_native_tracked);
 }
 
 async function start_native_tracked(token) {
@@ -1027,14 +1191,14 @@ function resume_native() {
     if (!state.native_job_id || state.native_polling) {
         return Promise.resolve();
     }
-    return track("C 내부 벤치마크 상태 확인", follow_native_job);
+    return track("native", "C 내부 벤치마크 상태 확인", follow_native_job);
 }
 
 function cancel_native() {
     if (!state.native_job_id) {
         return Promise.resolve();
     }
-    return track("C 내부 벤치마크 중단", cancel_native_tracked);
+    return track("native", "C 내부 벤치마크 중단", cancel_native_tracked);
 }
 
 async function cancel_native_tracked(token) {
@@ -1085,6 +1249,7 @@ async function poll_native(job_id, token) {
         $("#native-progress").value = job.completed_processes;
         const current = job.current ? ` · 실행 중: 반복 ${job.current.repeat}의 ${job.current.position}번째 ${NATIVE_SYSTEMS[job.current.system_key].label}` : "";
         $("#native-progress-text").textContent = `${job.job_id} · 프로세스 ${job.completed_processes}/${job.total_processes}${current}`;
+        refresh_tab_activity();
         if (job.status !== "running") {
             render_native_job(job, token);
             return;
@@ -1187,14 +1352,14 @@ function render_native_job(job, token) {
         const unequal = systems.some(([, summary]) => summary.metadata && summary.metadata.equivalent_structure_comparison === false);
         if (unequal || systems.some(([key]) => key !== "redis")) {
             const caveat = systems.map(([, summary]) => summary.metadata && summary.metadata.comparison_caveat).find(Boolean);
-            block.append(element("div", { class: "warn-box" }, [
+            block.append(element("div", { class: "warn-box multiline" }, [
                 // element("strong", {}, "위 표의 순수 탐색은 같은 반환 작업의 자료구조 비교가 아닙니다."),
                 // ` 해시 테이블 순수 탐색(키→값)과 B+ 트리 순수 탐색(ID→CSV 오프셋)은 반환 대상이 달라 동등 비교가 아닙니다
                 // ${unequal ? "(실행 파일 metadata: equivalent_structure_comparison=false)" : ""}. 
                 // 전체 조회도 엔진 범위가 다릅니다(Redis store_get vs RDBMS db_exec + CSV 읽기). 
                 // scan은 파일 기반 전체 조회만 있습니다.${caveat ? ` 실행 파일 설명: ${caveat}` : ""}`
 
-                 element("strong", {}, "위 표의 순수 탐색은 같은 반환 작업의 자료구조 비교가 아닙니다."),
+                 element("strong", { class: "multiline"}, "위 표의 순수 탐색은 같은 반환 작업의 자료구조 비교가 아닙니다.\n"),
                 ` 해시 테이블 순수 탐색(키→값)과 B+ 트리 순수 탐색(ID→CSV 오프셋)은 반환 대상이 달라 동등 비교가 아닙니다.\n
                 전체 조회도 엔진 범위가 다릅니다(Redis store_get vs RDBMS db_exec + CSV 읽기).\n
                 scan은 파일 기반 전체 조회만 있습니다.`
@@ -1290,7 +1455,7 @@ function start_bucket() {
     if (state.bucket_job_id || state.bucket_starting) {
         return Promise.resolve();
     }
-    return track("버킷 구조 비교", start_bucket_tracked);
+    return track("bucket", "버킷 구조 비교", start_bucket_tracked);
 }
 
 async function start_bucket_tracked(token) {
@@ -1349,14 +1514,14 @@ function resume_bucket() {
     if (!state.bucket_job_id || state.bucket_polling) {
         return Promise.resolve();
     }
-    return track("버킷 구조 비교 상태 확인", follow_bucket_job);
+    return track("bucket", "버킷 구조 비교 상태 확인", follow_bucket_job);
 }
 
 function cancel_bucket() {
     if (!state.bucket_job_id) {
         return Promise.resolve();
     }
-    return track("버킷 구조 비교 중단", cancel_bucket_tracked);
+    return track("bucket", "버킷 구조 비교 중단", cancel_bucket_tracked);
 }
 
 async function cancel_bucket_tracked(token) {
@@ -1401,6 +1566,7 @@ async function poll_bucket(job_id, token) {
         $("#bucket-progress").max = job.total_steps;
         $("#bucket-progress").value = job.completed_steps;
         $("#bucket-progress-text").textContent = `${job.job_id} · 단계 ${job.completed_steps}/${job.total_steps} · ${job.stage}`;
+        refresh_tab_activity();
         if (job.status !== "running") {
             render_finished_bucket_job(job, token);
             return;
@@ -1455,6 +1621,8 @@ function render_boundaries() {
 }
 
 async function initialize() {
+    // 탭은 설정을 읽기 전에 연결해 초기화가 실패해도 화면을 옮겨 볼 수 있게 한다.
+    setup_page_tabs();
     state.config = await call_management("GET", "/api/config");
     $("#redis-url").value = state.config.default_redis_url;
     $("#rdbms-url").value = state.config.default_rdbms_url;
