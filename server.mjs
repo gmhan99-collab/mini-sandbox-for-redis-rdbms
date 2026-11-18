@@ -7,8 +7,10 @@ import { fileURLToPath } from "node:url";
 import { managed_error, managed_registry } from "./lib/managed.mjs";
 import { NATIVE_DEFAULTS, native_benchmark_runner } from "./lib/native-bench.mjs";
 import { bucket_compare_runner } from "./lib/bucket-compare.mjs";
+import { persistence_bench_runner, persistence_manager } from "./lib/redis-persistence.mjs";
 import { RESULT_MAX_BYTES, collect_environment, result_store } from "./lib/results.mjs";
 import { close_upstream_agent, handle_proxy_request, read_limited_body, send_proxy_error } from "./lib/proxy.mjs";
+import { NATIVE_LIMITS } from "./public/lib/metrics.mjs";
 
 const sandbox_root = path.dirname(fileURLToPath(import.meta.url));
 const public_root = path.join(sandbox_root, "public");
@@ -33,10 +35,10 @@ function choose_executable(setting) {
 const CONFIG_DEFAULTS = {
     redis_benchmark_executable: "../mini-redis/build/mini-redis-benchmark.exe",
     rdbms_benchmark_executable: "../mini-rdbms/build/mini-rdbms-benchmark.exe",
-    native_max_count: 10000,
+    native_max_count: 1000000,
     native_max_queries: 1000000,
     native_max_repeats: 5,
-    native_timeout_ms: 120000,
+    native_timeout_ms: 300000,
     native_max_stdout_bytes: 4 * 1024 * 1024,
     native_scan_work_budget: 20000000,
     redis_bucket_benchmark_executable: "../mini-redis/build/mini-redis-bucket-benchmark.exe",
@@ -154,7 +156,7 @@ function describe_public_config(config, registry, bucket_runner) {
                 rdbms: { path: config.rdbms_benchmark_executable, exists: fs.existsSync(config.rdbms_benchmark_executable_abs) }
             },
             defaults: NATIVE_DEFAULTS,
-            limits: { count_max: config.native_max_count, queries_max: config.native_max_queries, rounds_max: 20, repeats_max: config.native_max_repeats, seed_max: 4294967295, hit_percent_max: 100, scan_work_budget: config.native_scan_work_budget },
+            limits: { count_max: Math.min(NATIVE_LIMITS.count_max, config.native_max_count), queries_max: Math.min(NATIVE_LIMITS.queries_max, config.native_max_queries), rounds_max: 20, repeats_max: config.native_max_repeats, seed_max: 4294967295, hit_percent_max: 100, scan_work_budget: config.native_scan_work_budget },
             timeout_ms: config.native_timeout_ms
         }
     };
@@ -168,6 +170,10 @@ function send_raw_json(response, status, buffer) {
 async function handle_api(request, response, context) {
     const { config, registry, native_runner, bucket_runner, results } = context;
     const route = `${request.method} ${request.url}`;
+    if (request.url.startsWith("/api/persistence")) {
+        await handle_persistence_api(request, response, context);
+        return;
+    }
     if (route === "GET /api/config") {
         send_json(response, 200, describe_public_config(config, registry, bucket_runner));
         return;
@@ -232,6 +238,45 @@ async function handle_api(request, response, context) {
     }
 }
 
+// Redis 영속성 탭: 관리형 영속성 인스턴스(대화형)와 같은 작업량 측정 작업. lib/redis-persistence.mjs 참고.
+async function handle_persistence_api(request, response, context) {
+    const { persistence, persistence_bench } = context;
+    const route = `${request.method} ${request.url}`;
+    if (route === "GET /api/persistence") {
+        send_json(response, 200, { ...persistence.describe_public(), bench: persistence_bench.describe_public() });
+        return;
+    }
+    const job_match = /^GET \/api\/persistence\/jobs\/([A-Za-z0-9-]+)$/.exec(route);
+    if (job_match) {
+        send_json(response, 200, persistence_bench.describe(persistence_bench.get(job_match[1])));
+        return;
+    }
+    if (request.method !== "POST") {
+        throw new managed_error("route_not_found", "지원하지 않는 관리 API입니다.", 404);
+    }
+    const body = await read_json_body(request);
+    const cancel_match = /^\/api\/persistence\/jobs\/([A-Za-z0-9-]+)\/cancel$/.exec(request.url);
+    if (request.url === "/api/persistence/start") {
+        send_json(response, 200, await persistence.start(body));
+    } else if (request.url === "/api/persistence/status") {
+        send_json(response, 200, await persistence.status());
+    } else if (request.url === "/api/persistence/save") {
+        send_json(response, 200, await persistence.save());
+    } else if (request.url === "/api/persistence/stop") {
+        send_json(response, 200, await persistence.stop());
+    } else if (request.url === "/api/persistence/restart") {
+        send_json(response, 200, await persistence.restart());
+    } else if (request.url === "/api/persistence/stores/delete") {
+        send_json(response, 200, await persistence.delete_store(body.store_id));
+    } else if (request.url === "/api/persistence/jobs") {
+        send_json(response, 202, persistence_bench.start(body));
+    } else if (cancel_match) {
+        send_json(response, 200, persistence_bench.cancel(cancel_match[1]));
+    } else {
+        throw new managed_error("route_not_found", "지원하지 않는 관리 API입니다.", 404);
+    }
+}
+
 // options.native_command_for, options.bucket_helper_command: 테스트에서 가짜 벤치마크 실행 파일을 지정할 때만 사용한다.
 export function create_sandbox_server(config, options = {}) {
     const registry = new managed_registry(config);
@@ -250,7 +295,15 @@ export function create_sandbox_server(config, options = {}) {
         helper_command: options.bucket_helper_command,
         on_job_finished: (exported) => results.save("bucket", exported)
     });
-    const context = { config, registry, native_runner, bucket_runner, results };
+    // options.persistence_command_for: 테스트에서 가짜 영속성 Redis를 지정할 때만 사용한다.
+    const persistence = new persistence_manager(config, registry, { command_for: options.persistence_command_for });
+    const persistence_bench = new persistence_bench_runner(config, {
+        registry,
+        job_gate,
+        command_for: options.persistence_command_for,
+        on_job_finished: (exported) => results.save("persistence", exported)
+    });
+    const context = { config, registry, native_runner, bucket_runner, results, persistence, persistence_bench };
     const server = http.createServer(async (request, response) => {
         try {
             if (!is_trusted_request(request, config.sandbox_port)) {
@@ -275,13 +328,13 @@ export function create_sandbox_server(config, options = {}) {
             send_json(response, status, { sandbox_error: error.code || "internal_error", message: error.message });
         }
     });
-    return { server, registry, native_runner, bucket_runner, results };
+    return { server, registry, native_runner, bucket_runner, results, persistence, persistence_bench };
 }
 
 async function main() {
     const port_argument = process.argv[2] ? Number(process.argv[2]) : undefined;
     const config = load_config(port_argument ? { sandbox_port: port_argument } : {});
-    const { server, registry, native_runner, bucket_runner } = create_sandbox_server(config);
+    const { server, registry, native_runner, bucket_runner, persistence, persistence_bench } = create_sandbox_server(config);
     let shutting_down = false;
     const shutdown = async () => {
         if (shutting_down) {
@@ -291,6 +344,8 @@ async function main() {
         console.log("샌드박스를 종료합니다. 샌드박스가 실행한 관리형 서버만 중지합니다.");
         await native_runner.stop_all();
         await bucket_runner.stop_all();
+        await persistence_bench.stop_all();
+        await persistence.stop_all();
         await registry.stop_all();
         close_upstream_agent();
         server.close(() => process.exit(0));

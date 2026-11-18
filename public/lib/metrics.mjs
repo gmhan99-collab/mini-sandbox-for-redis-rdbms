@@ -307,7 +307,7 @@ export const VARIABILITY_CAVEATS = [
 
 // ---- 네이티브 벤치마크 결과 검증 (계약 v1) ----
 
-export const NATIVE_LIMITS = Object.freeze({ count_max: 10000, queries_max: 1000000, rounds_max: 20, seed_max: 4294967295, hit_percent_max: 100 });
+export const NATIVE_LIMITS = Object.freeze({ count_max: 1000000, queries_max: 1000000, rounds_max: 20, seed_max: 4294967295, hit_percent_max: 100 });
 
 export const NATIVE_SYSTEMS = Object.freeze({
     "redis": { system: "redis", mode: "hash", label: "mini-redis 해시 테이블" },

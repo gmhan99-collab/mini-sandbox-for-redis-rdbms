@@ -1,10 +1,12 @@
 // 탭 버튼의 진행 상태와 상단 공통 서버 요약에 쓸 문구를 페이지 상태에서 계산한다(DOM·네트워크 없음).
 // 화면은 이 값을 그리기만 한다. 서버 상태는 마지막으로 실제 확인한 결과만 쓰고, 살아 있다고 추정하지 않는다.
 
-export const PAGE_TAB_KEYS = Object.freeze(["connection", "redis-sql", "http", "native", "bucket"]);
+export const PAGE_TAB_KEYS = Object.freeze(["connection", "redis-sql", "http", "native", "bucket", "persistence"]);
 
 // app.mjs의 track(label, …) 이름이 어느 탭의 동작인지. 앞에서부터 처음 맞는 규칙을 쓴다.
 const OPERATION_TAB_RULES = Object.freeze([
+    // "Redis " 규칙보다 먼저 맞아야 한다.
+    ["Redis 영속성", "persistence"],
     ["redis 상태 확인", "connection"],
     ["rdbms 상태 확인", "connection"],
     ["redis 관리형 동작", "connection"],
@@ -39,8 +41,8 @@ function job_activity(job, progress) {
     return null;
 }
 
-// input: { pending_labels, connections_busy, experiment_running, native, bucket, progress }
-// native·bucket: { starting, job_id, unresolved }. 미해결 작업은 서버에서 아직 실행 중일 수 있으므로 진행 중으로 센다.
+// input: { pending_labels, connections_busy, experiment_running, native, bucket, persistence, progress }
+// native·bucket·persistence: { starting, job_id, unresolved }. persistence는 생략할 수 있다(이전 호출). 미해결 작업은 서버에서 아직 실행 중일 수 있으므로 진행 중으로 센다.
 export function describe_tab_activity(input) {
     const activity = Object.fromEntries(PAGE_TAB_KEYS.map((key) => [key, { state: "idle", text: "" }]));
     const pending_tabs = new Set(input.pending_labels.map(tab_of_operation).filter(Boolean));
@@ -53,7 +55,10 @@ export function describe_tab_activity(input) {
     if (input.experiment_running) {
         activity.http = { state: "busy", text: progress_text(input.progress.http) };
     }
-    for (const key of ["native", "bucket"]) {
+    for (const key of ["native", "bucket", "persistence"]) {
+        if (!input[key]) {
+            continue;
+        }
         const job = job_activity(input[key], input.progress[key]);
         if (job) {
             activity[key] = job;

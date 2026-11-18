@@ -10,7 +10,8 @@
 export const CLEARABLE_STATE_DEFAULTS = Object.freeze({
     last_http_export: null,
     last_native_export: null,
-    last_bucket_export: null
+    last_bucket_export: null,
+    last_persistence_export: null
 });
 
 // 탭(범위)별 지우기 대상 상태 필드. 키는 page-status.mjs의 PAGE_TAB_KEYS와 같다.
@@ -20,7 +21,8 @@ export const RESULT_SCOPE_STATE_DEFAULTS = Object.freeze({
     "redis-sql": Object.freeze({}),
     http: Object.freeze({ last_http_export: null }),
     native: Object.freeze({ last_native_export: null }),
-    bucket: Object.freeze({ last_bucket_export: null })
+    bucket: Object.freeze({ last_bucket_export: null }),
+    persistence: Object.freeze({ last_persistence_export: null })
 });
 
 export function is_result_scope(scope) {

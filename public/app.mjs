@@ -10,6 +10,7 @@ import { BUCKET_STRUCTURE_LABELS, read_bucket_health } from "./lib/bucket.mjs";
 import { render_bucket_health, render_bucket_job } from "./lib/bucket-render.mjs";
 import { create_tab_navigation, select_tab, set_tab_status } from "./lib/tab-navigation.mjs";
 import { describe_tab_activity, summarize_connection } from "./lib/page-status.mjs";
+import { create_persistence_panel } from "./lib/persistence-panel.mjs";
 import { describe_delete_failure, describe_rdbms_delete_health, read_rdbms_delete_health, summarize_sql_success } from "./lib/sql-delete.mjs";
 
 const REQUEST_LOG_LIMIT = 30;
@@ -34,8 +35,18 @@ const state = {
     bucket_status_unresolved: false,
     last_http_export: null,
     last_native_export: null,
-    last_bucket_export: null
+    last_bucket_export: null,
+    // Redis 영속성 탭: 관리 동작 이름(진행 중일 때)과 측정 작업. lib/persistence-panel.mjs 참고.
+    persistence_action: null,
+    persistence_job_id: null,
+    persistence_starting: false,
+    persistence_polling: false,
+    persistence_status_unresolved: false,
+    last_persistence_export: null
 };
+
+// initialize에서 만든다. 만들기 전(테스트 포함)에는 null이다.
+let persistence_panel = null;
 
 // 결과를 만드는 비동기 동작의 진행 여부와 결과 표시 세대. lib/result-display.mjs 참고.
 const display_tracker = create_display_tracker();
@@ -72,7 +83,7 @@ function track(scope, label, action) {
 
 // 결과를 만드는 동작이 남아 있는지. 추적 토큰 외에, 상태 확인이 실패해 아직 놓지 않은 네이티브 작업도 포함한다.
 function is_result_work_outstanding() {
-    return has_pending_operations(display_tracker) || state.experiment_running || state.native_starting || Boolean(state.native_job_id) || state.bucket_starting || Boolean(state.bucket_job_id);
+    return has_pending_operations(display_tracker) || state.experiment_running || state.native_starting || Boolean(state.native_job_id) || state.bucket_starting || Boolean(state.bucket_job_id) || Boolean(state.persistence_action) || state.persistence_starting || Boolean(state.persistence_job_id);
 }
 
 // 지우기를 막는 이유. 전체 지우기와 탭별 지우기가 같은 잠금을 쓴다(어느 탭의 동작이든 진행 중이면 모두 막는다).
@@ -84,6 +95,9 @@ function describe_clear_lock() {
     }
     if (state.bucket_job_id && state.bucket_status_unresolved) {
         pending.push(`버킷 구조 비교 ${state.bucket_job_id} 상태 확인 필요`);
+    }
+    if (state.persistence_job_id && state.persistence_status_unresolved) {
+        pending.push(`Redis 영속성 측정 ${state.persistence_job_id} 상태 확인 필요`);
     }
     const busy = is_result_work_outstanding();
     return { busy, reason: busy ? `진행 중인 동작이 끝난 뒤 사용할 수 있습니다: ${pending.join(", ") || "실행 중"}` : "" };
@@ -131,7 +145,8 @@ function refresh_tab_activity() {
         experiment_running: state.experiment_running,
         native: { starting: state.native_starting, job_id: state.native_job_id, unresolved: state.native_status_unresolved },
         bucket: { starting: state.bucket_starting, job_id: state.bucket_job_id, unresolved: state.bucket_status_unresolved },
-        progress: { http: progress_of("exp"), native: progress_of("native"), bucket: progress_of("bucket") }
+        persistence: { starting: state.persistence_starting || Boolean(state.persistence_action), job_id: state.persistence_job_id, unresolved: state.persistence_status_unresolved },
+        progress: { http: progress_of("exp"), native: progress_of("native"), bucket: progress_of("bucket"), persistence: progress_of("persistence") }
     });
     for (const [key, item] of Object.entries(activity)) {
         set_tab_status(page_tabs, `tab-${key}`, item);
@@ -161,7 +176,8 @@ function record_health(kind, record) {
 const INITIAL_PROGRESS_TEXT = {
     exp: "실험 대기 중입니다.",
     native: "벤치마크 대기 중입니다.",
-    bucket: "비교 대기 중입니다."
+    bucket: "비교 대기 중입니다.",
+    persistence: "측정 대기 중입니다."
 };
 
 // 탭(범위)마다 지우는 화면 요소. 키는 탭 키(page-status.mjs PAGE_TAB_KEYS)이자 track()의 scope다.
@@ -173,7 +189,8 @@ const RESULT_SCOPES = Object.freeze({
     "redis-sql": { results: ["#redis-result", "#sql-result"], progress: null, export_button: null, outcome: "Redis·SQL 결과와 그 요청 기록 줄을 지웠습니다. 다른 탭의 결과와 입력값은 그대로입니다." },
     http: { results: ["#exp-results"], progress: "exp", export_button: "#exp-export", outcome: "HTTP 실험 결과·진행 표시와 내보내기 대상을 지웠습니다. 저장된 결과 파일과 다른 탭의 결과는 그대로입니다." },
     native: { results: ["#native-results"], progress: "native", export_button: "#native-export", outcome: "C 벤치마크 결과·진행 표시와 내보내기 대상을 지웠습니다. 저장된 결과 파일과 다른 탭의 결과는 그대로입니다." },
-    bucket: { results: ["#bucket-results"], progress: "bucket", export_button: "#bucket-export", outcome: "버킷 구조 비교 결과·진행 표시와 내보내기 대상을 지웠습니다. 저장된 결과 파일과 다른 탭의 결과는 그대로입니다." }
+    bucket: { results: ["#bucket-results"], progress: "bucket", export_button: "#bucket-export", outcome: "버킷 구조 비교 결과·진행 표시와 내보내기 대상을 지웠습니다. 저장된 결과 파일과 다른 탭의 결과는 그대로입니다." },
+    persistence: { results: ["#persistence-action-result", "#persistence-results"], progress: "persistence", export_button: "#persistence-export", outcome: "Redis 영속성 동작 결과·측정 결과·진행 표시와 내보내기 대상을 지웠습니다. 실행 중인 영속성 Redis, 저장소 데이터, 저장된 결과 파일은 그대로입니다." }
 });
 
 // 한 탭의 결과 표시를 처음 상태로 되돌린다. 전체 지우기와 탭별 지우기가 함께 쓴다(상태 필드는 호출한 쪽이 이미 되돌렸다).
@@ -929,7 +946,7 @@ async function refresh_saved_results() {
     const list = $("#saved-results");
     try {
         const { results } = await call_management("GET", "/api/results");
-        const kind_labels = { native: "C 내부 벤치마크", http: "HTTP 실험", bucket: "버킷 구조 비교" };
+        const kind_labels = { native: "C 내부 벤치마크", http: "HTTP 실험", bucket: "버킷 구조 비교", persistence: "Redis 영속성 측정" };
         list.replaceChildren(...results.slice(0, 20).map((item) => element("li", {}, [element("a", { href: `/api/results/${item.result_id}`, target: "_blank", rel: "noopener" }, item.result_id), ` — ${kind_labels[item.kind] || item.kind}, ${item.bytes}바이트`])));
         if (results.length === 0) {
             list.replaceChildren(element("li", {}, "저장된 결과가 없습니다."));
@@ -1438,7 +1455,7 @@ function initialize_native(config) {
     $("#native-repeats").value = native.defaults.repeats;
     $("#native-repeats").max = native.limits.repeats_max;
     state.native_limits = native.limits;
-    $("#native-limits").textContent = `건수 1~${native.limits.count_max}, 조회 1~${native.limits.queries_max}, 라운드 1~${native.limits.rounds_max}, 반복 비교 1~${native.limits.repeats_max}, seed 0~${native.limits.seed_max}, 적중 비율 0~100. 범위를 벗어나면 서버가 거부합니다. 프로세스당 제한 시간 ${native.timeout_ms / 1000}초. scan을 고르면 작업량 건수 × 조회 수 × 라운드가 ${native.limits.scan_work_budget.toLocaleString()} 이하여야 합니다(실행 시간 보장이 아닌 작업량 상한).`;
+    $("#native-limits").textContent = `건수 1~${native.limits.count_max}, 조회 1~${native.limits.queries_max}, 라운드 1~${native.limits.rounds_max}, 반복 비교 1~${native.limits.repeats_max}, seed 0~${native.limits.seed_max}, 적중 비율 0~100. 범위를 벗어나면 서버가 거부합니다. 프로세스당 제한 시간 ${native.timeout_ms / 1000}초이며 데이터 생성·삽입·인덱스 구축·워밍업 같은 준비 시간도 포함합니다(준비 시간은 조회 측정과 따로 기록). 데이터 건수와 조회 수는 따로 정합니다. 큰 데이터를 넣어도 조회 수를 함께 늘릴 필요는 없으며, 10만·100만 건에서는 조회 수를 그대로 두거나 낮추세요. scan을 고르면 작업량 건수 × 조회 수 × 라운드가 ${native.limits.scan_work_budget.toLocaleString()} 이하여야 합니다(실행 시간 보장이 아닌 작업량 상한). 큰 데이터에서는 조회 수를 낮추거나 scan을 빼세요.`;
     const missing = Object.entries(native.executables).filter(([, executable]) => !executable.exists).map(([, executable]) => executable.path);
     if (missing.length > 0) {
         show($("#native-executables"), element("div", { class: "warn-box" }, `벤치마크 실행 파일이 아직 없습니다: ${missing.join(", ")}. README의 “C 내부 벤치마크 빌드”를 먼저 진행해 주세요. 없는 시스템을 선택하면 실행이 실패로 끝납니다.`));
@@ -1676,6 +1693,27 @@ async function initialize() {
     await refresh_playground_info();
     initialize_native(state.config);
     initialize_bucket(state.config);
+    persistence_panel = create_persistence_panel({
+        $,
+        element,
+        track,
+        call_management,
+        download_json,
+        state,
+        is_current: (token) => is_current(display_tracker, token),
+        on_change: update_clear_button,
+        on_job_finished: refresh_saved_results,
+        use_redis_url: (url, { quiet = false } = {}) => {
+            // 연결 탭의 Redis 주소 입력만 바꾼다(수동 주소로 취급). 서버 연결 탭의 관리형 Redis는 그대로다.
+            $("#redis-url").value = url;
+            $("#redis-url").dispatchEvent(new Event("input"));
+            if (quiet) {
+                return;
+            }
+            $("#persistence-action-result").replaceChildren(element("div", { class: "ok-box" }, `Redis 주소를 ${url}로 바꿨습니다. Redis·SQL 실행 탭에서 키를 조작한 뒤 이 탭에서 저장·종료·복원을 확인하세요.`));
+        }
+    });
+    await persistence_panel.initialize();
     render_boundaries();
     bind_events();
     await refresh_saved_results();
