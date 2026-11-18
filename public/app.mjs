@@ -742,7 +742,8 @@ function storage_condition_line(run) {
     if (!condition) {
         return null;
     }
-    const parts = [condition.storage, condition.flush, condition.durability, `인덱스 저장 ${condition.index_save}`];
+    // join은 null·undefined를 빈 문자열로 바꾸므로, 값 누락이 그대로 보이도록 템플릿 보간으로 문자열화한다.
+    const parts = [`${condition.storage}`, `${condition.flush}`, `${condition.durability}`, `인덱스 저장 ${condition.index_save}`];
     return element("p", { class: "metrics" }, `RDBMS 저장 조건(서버 /health): ${parts.join(" · ")}`);
 }
 
@@ -1629,7 +1630,7 @@ function initialize_bucket(config) {
     $("#bucket-limits").textContent = `HTTP 계층을 고르면 건수 1~${bucket.limits.http_count_max}, 조회 1~${bucket.limits.http_queries_max}. C만 고르면 건수 1~${bucket.limits.count_max}, 조회 1~${bucket.limits.queries_max}. 라운드 1~${bucket.limits.rounds_max}, 초기 버킷은 1~${bucket.limits.buckets_max}의 2의 거듭제곱, 해시 시드는 32자리 16진수. 범위를 벗어나면 서버가 거부합니다. 프로세스당 제한 시간 ${bucket.timeout_ms / 1000}초.`;
     const notes = [];
     if (!bucket.executables.helper.exists) {
-        notes.push(`버킷 비교 헬퍼가 아직 없습니다: ${bucket.executables.helper.path}. hjm-mini-redis에서 make BUILD_DIR=build/bucket-compare server bucket-benchmark를 실행해 주세요. 헬퍼 없이는 데이터 준비와 C 측정을 할 수 없습니다.`);
+        notes.push(`버킷 비교 헬퍼가 아직 없습니다: ${bucket.executables.helper.path}. mini-redis에서 make server bucket-benchmark를 실행해 주세요. 헬퍼 없이는 데이터 준비와 C 측정을 할 수 없습니다.`);
     }
     if (!bucket.executables.server.path.includes("bucket-compare")) {
         notes.push(`관리형 Redis 실행 파일이 ${bucket.executables.server.path}입니다. 구조 선택을 지원하지 않는 이전 빌드일 수 있으며, 그러면 HTTP 측정은 시작 단계에서 “지원하지 않음”으로 멈춥니다.`);

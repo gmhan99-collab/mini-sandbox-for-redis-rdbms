@@ -31,15 +31,15 @@ function choose_executable(setting) {
 }
 
 const CONFIG_DEFAULTS = {
-    redis_benchmark_executable: "../hjm-mini-redis/build/todo-measurement/mini-redis-benchmark.exe",
-    rdbms_benchmark_executable: "../hjm-mini-rdbms/build/todo-measurement/mini-rdbms-benchmark.exe",
+    redis_benchmark_executable: "../mini-redis/build/mini-redis-benchmark.exe",
+    rdbms_benchmark_executable: "../mini-rdbms/build/mini-rdbms-benchmark.exe",
     native_max_count: 10000,
     native_max_queries: 1000000,
     native_max_repeats: 5,
     native_timeout_ms: 120000,
     native_max_stdout_bytes: 4 * 1024 * 1024,
     native_scan_work_budget: 20000000,
-    redis_bucket_benchmark_executable: "../hjm-mini-redis/build/bucket-compare/mini-redis-bucket-benchmark.exe",
+    redis_bucket_benchmark_executable: "../mini-redis/build/mini-redis-bucket-benchmark.exe",
     bucket_http_max_count: 200,
     bucket_http_max_queries: 2000,
     bucket_max_rounds: 20,

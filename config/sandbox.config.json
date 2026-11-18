@@ -2,30 +2,11 @@
   "sandbox_port": 8090,
   "default_redis_url": "http://127.0.0.1:8080",
   "default_rdbms_url": "http://127.0.0.1:8081",
-  "redis_executable": [
-    "../hjm-mini-redis/build/bucket-compare/mini-redis.exe",
-    "../hjm-mini-redis/build/todo-remaining/mini-redis.exe",
-    "../hjm-mini-redis/build/todo-measurement/mini-redis.exe",
-    "../hjm-mini-redis/build/sandbox-backend/mini-redis.exe"
-  ],
-  "rdbms_executable": [
-    "../hjm-mini-rdbms/build/delete-api/mini-rdbms-server.exe",
-    "../hjm-mini-rdbms/build/todo-remaining/mini-rdbms-server.exe",
-    "../hjm-mini-rdbms/build/todo-measurement/mini-rdbms-server.exe",
-    "../hjm-mini-rdbms/build/sandbox-backend/mini-rdbms-server.exe"
-  ],
-  "redis_benchmark_executable": [
-    "../hjm-mini-redis/build/todo-remaining/mini-redis-benchmark.exe",
-    "../hjm-mini-redis/build/todo-measurement/mini-redis-benchmark.exe"
-  ],
-  "rdbms_benchmark_executable": [
-    "../hjm-mini-rdbms/build/delete-api/mini-rdbms-benchmark.exe",
-    "../hjm-mini-rdbms/build/todo-remaining/mini-rdbms-benchmark.exe",
-    "../hjm-mini-rdbms/build/todo-measurement/mini-rdbms-benchmark.exe"
-  ],
-  "redis_bucket_benchmark_executable": [
-    "../hjm-mini-redis/build/bucket-compare/mini-redis-bucket-benchmark.exe"
-  ],
+  "redis_executable": "../mini-redis/build/mini-redis.exe",
+  "rdbms_executable": "../mini-rdbms/build/mini-rdbms-server.exe",
+  "redis_benchmark_executable": "../mini-redis/build/mini-redis-benchmark.exe",
+  "rdbms_benchmark_executable": "../mini-rdbms/build/mini-rdbms-benchmark.exe",
+  "redis_bucket_benchmark_executable": "../mini-redis/build/mini-redis-bucket-benchmark.exe",
   "rdbms_schema": "config/experiment-schema.json",
   "data_root": "data",
   "experiment_max_count": 200,

@@ -107,7 +107,7 @@ function format_counter(value) {
 
 export function describe_rdbms_delete_health(delete_health) {
     if (!delete_health.supported) {
-        return "DELETE 지원: 서버가 보고하지 않음(이전 빌드). DELETE는 이 서버에서 오류로 끝납니다. build/delete-api 빌드가 필요합니다.";
+        return "DELETE 지원: 서버가 보고하지 않음(이전 빌드). DELETE는 이 서버에서 오류로 끝납니다. mini-rdbms에서 mingw32-make server로 서버를 빌드해 주세요.";
     }
     const tables = delete_health.tables.map((table) => `${table.name}: 정상 ${format_counter(table.rows)} · 물리 ${format_counter(table.physical_rows)} · 삭제 표시 ${format_counter(table.deleted_rows)} · 최대 발급 ID ${format_counter(table.max_issued_id)}`);
     return `DELETE 지원: 예 · 데이터 형식: ${delete_health.data_format || "보고 없음"}${tables.length ? ` · ${tables.join(" / ")}` : ""}`;
